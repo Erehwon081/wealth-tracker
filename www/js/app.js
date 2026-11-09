@@ -208,9 +208,15 @@ async function applySummary(m, withBalances) {
   await writeDoc('months/' + m, S.months[m]);
 }
 const r2 = (v) => Math.round(v * 100) / 100;
+// Older data names the partner categories after the person ("Shonny's card", "Shonny mortgage share", "Shonny other").
+// Map them to the stored keys the app uses; the display name comes from Settings.
+const LEGACY_CATS = [[/^.+['’]s card$/i, "Partner's card"], [/^.+ mortgage share$/i, 'Partner mortgage share'], [/^.+ other$/i, 'Partner other']];
+function fixCat(cat) { if (!cat || ALL_CATS.includes(cat)) return cat; for (const [re, key] of LEGACY_CATS) if (re.test(cat)) return key; return cat; }
+function fixRows(rows) { let changed = false; for (const t of rows) { const c = fixCat(t.cat); if (c !== t.cat) { t.cat = c; changed = true; } } return changed; }
 async function loadTx(m) {
   if (S.tx[m]) return S.tx[m];
   try { const rows = await store.get('tx', m); S.tx[m] = Array.isArray(rows) ? rows : []; } catch { return []; }
+  if (fixRows(S.tx[m])) await writeDoc('tx/' + m, { rows: S.tx[m] });
   return S.tx[m];
 }
 
@@ -485,7 +491,7 @@ async function renderSpend() {
   if (!rows.length) { list.append(el('div', { class: 'empty' }, el('p', { text: 'No transactions imported for this month.' }), el('button', { class: 'btn small primary', type: 'button', 'data-pick': 'csvIn', text: 'Import CSVs' }))); return; }
   if (!show.length) list.append(el('p', { class: 'cap muted', style: 'padding-block:12px', text: 'No transactions match.' }));
   for (const t of show.slice(0, 400)) {
-    const sel = el('select', { 'aria-label': 'Category for ' + t.desc }, ALL_CATS.map((k) => el('option', { value: k, selected: k === t.cat }, pLabel(k))));
+    const sel = el('select', { 'aria-label': 'Category for ' + t.desc }, [...ALL_CATS, ...(ALL_CATS.includes(t.cat) ? [] : [t.cat])].map((k) => el('option', { value: k, selected: k === t.cat }, pLabel(k))));
     sel.addEventListener('change', async () => {
       t.cat = sel.value; t.lumpy = undefined;
       const key = t.desc.replace(/\d{4,}.*$/, '').trim().slice(0, 24);
@@ -978,6 +984,7 @@ async function loadState() {
   const [config, accounts, months, holdings, meta] = await Promise.all([store.get('config', 'app'), store.getAll('accounts'), store.getAll('months'), store.getAll('holdings'), store.getAll('meta')]);
   S.config = config ?? null; S.accounts = Object.values(accounts); S.months = months; S.holdings = Object.values(holdings); S.tx = {}; S.meta = meta || {};
   S.draft = null; S.catFilter = null;
+  if (S.config?.rules?.some((r) => fixCat(r.cat) !== r.cat)) { S.config.rules = S.config.rules.map((r) => ({ ...r, cat: fixCat(r.cat) })); await store.put('config', 'app', clone(S.config)); }
   S.ready = { config: true, accounts: true, months: true };
 }
 async function reloadAll() { await loadState(); S.month = pickStartMonth(); fillMonthPick(); render(true); }

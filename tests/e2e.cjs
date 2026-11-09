@@ -55,6 +55,20 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   await p.click('.tab[data-tab=wealth]'); await p.waitForTimeout(300);
   ok((await p.$$('#w-list .row')).length === 3, 'restore replaced the accounts');
 
+  // Older backups name partner categories after the person
+  const named = JSON.parse(JSON.stringify(legacy)); named.config.partnerName = 'Shonny';
+  named.tx['2026-10'] = named.tx['2026-10'].map((t) => ({ ...t, cat: t.cat === "Partner's card" ? "Shonny's card" : t.cat === 'Partner mortgage share' ? 'Shonny mortgage share' : t.cat }));
+  const namedPath = path.join(tmp, 'named.json'); fs.writeFileSync(namedPath, JSON.stringify(named));
+  await p.click('#settingsBtn'); await pick('text=Restore from file', namedPath); await p.waitForTimeout(300);
+  await p.click('text=Replace and restore'); await p.waitForTimeout(600);
+  await p.selectOption('#monthPick', '2026-10'); await p.click('.tab[data-tab=spend]'); await p.waitForTimeout(400);
+  await p.locator('#s-filter button', { hasText: 'Shonny' }).click(); await p.waitForTimeout(300);
+  const shown = await p.$$('#s-tx .tx');
+  const expected = named.tx['2026-10'].filter((t) => /^Shonny/.test(t.cat)).length;
+  ok(shown.length === expected && expected > 0, `named partner categories show under the partner filter (${shown.length} of ${expected})`);
+  ok((await p.textContent('#s-tx')).includes("Shonny's card"), 'they display with the partner name');
+  await p.click('.tab[data-tab=wealth]'); await p.waitForTimeout(300);
+
   // Restore encrypted: wrong then right passphrase
   await p.click('#settingsBtn'); await pick('text=Restore from file', encPath); await p.waitForTimeout(200);
   await p.fill('#rp-pass', 'nope'); await p.click('text=Unlock'); await p.waitForTimeout(2500);
