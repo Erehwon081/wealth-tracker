@@ -865,7 +865,7 @@ function settingsSheet() {
       toast('Household saved');
     } })));
 
-  const linkRow = (kind) => { const id = 'st-ps-' + kind; const inp = el('input', { id, class: 'plain url', type: 'url', inputmode: 'url', value: c.priceSheets[kind] || '', placeholder: 'https://docs.google.com/spreadsheets/d/e/…/pub?…output=csv', autocomplete: 'off', spellcheck: 'false' });
+  const linkRow = (kind) => { const id = 'st-ps-' + kind; const inp = el('input', { id, class: 'plain url', type: 'url', inputmode: 'url', value: c.priceSheets[kind] || '', placeholder: 'Paste the CSV link here', autocomplete: 'off', spellcheck: 'false' });
     return el('div', { class: 'field wide' }, el('label', { for: id }, `${SHEET_COLS[kind].label} tab`), inp); };
   const prices = el('div', { class: 'card' }, el('h2', { text: 'Price sheet links' }),
     el('p', { class: 'cap muted', text: 'In Google Sheets, choose File > Share > Publish to web, pick a tab, choose Comma-separated values (.csv), then Publish and paste the link here. Do this for each of the ETFs, Stocks and Crypto tabs. Anyone with a published link can read that tab.' }),
@@ -875,7 +875,8 @@ function settingsSheet() {
       for (const k of Object.keys(SHEET_COLS)) { const v = $('#st-ps-' + k).value.trim(); links[k] = v; if (v && !looksLikePublishedCsv(v)) bad.push(SHEET_COLS[k].label); }
       if (bad.length) { toast(`${bad.join(', ')}: use the Publish to web link ending in output=csv`); return; }
       await saveConfig({ priceSheets: links }); try { localStorage.removeItem('bm-live'); } catch {}
-      toast('Links saved. Prices update when you open Invest.');
+      const count = Object.values(links).filter(Boolean).length;
+      toast(count ? `${count} link${count > 1 ? 's' : ''} saved. Prices update when you open Invest.` : 'No links entered. Paste a published CSV link into each box first.');
     } })));
 
   const last = S.meta.lastBackup;
