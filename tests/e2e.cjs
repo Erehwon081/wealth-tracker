@@ -137,6 +137,13 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   ok(await p.isVisible('text=Balances from NAB'), 'PDF import works offline');
   await ctx.setOffline(false);
 
+  // Theme choice persists and colours the status bar
+  await closeSheets(); await p.click('#settingsBtn'); await p.locator('.seg.theme button', { hasText: 'Dark' }).click(); await closeSheets();
+  await p.reload(); await p.waitForTimeout(500);
+  ok(await p.evaluate(() => document.documentElement.dataset.theme === 'dark' && document.querySelector('meta[name=theme-color]').content === '#0d0f14' && getComputedStyle(document.body).backgroundColor === 'rgb(13, 15, 20)'), 'dark theme choice survives a reload');
+  await p.click('#settingsBtn'); await p.locator('.seg.theme button', { hasText: 'Light' }).click(); await closeSheets();
+  ok(await p.evaluate(() => getComputedStyle(document.body).backgroundColor === 'rgb(245, 245, 250)'), 'light theme applies straight away');
+
   // Backup reminder after 30 days
   await p.evaluate(async () => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); }); const tx = db.transaction('meta', 'readwrite'); tx.objectStore('meta').put(new Date(Date.now() - 31 * 864e5).toISOString(), 'lastBackup'); await new Promise((res) => { tx.oncomplete = res; }); });
   await p.goto(BASE + '#home'); await p.reload(); await p.waitForTimeout(600);

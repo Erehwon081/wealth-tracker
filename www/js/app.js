@@ -8,6 +8,37 @@ import { buildBackup, encryptBackup, decryptBackup, isEncrypted, readBackup, bac
 const SPEND_CATS = ['Groceries','Eating out','Cafes','Fuel','Transport','Bills','Insurance','Health','Personal care','Shopping','Clothing','Home & furniture','Entertainment','Subscriptions','Services','Pets','Gifts','Rego','Council rates','Interest & fees','Other'];
 const FLOW_CATS = ['Income','Money in','Rent','Mortgage','Car loan','Child support','Partner mortgage share','Partner other','Transfer',"Partner's card"];
 const ALL_CATS = [...SPEND_CATS, ...FLOW_CATS];
+// Icon (24px stroke path) and colour token for each category.
+const ICONS = {
+  cart: 'M3 4h2l2.4 11h11l2-8H6.5M9 20h.01M18 20h.01', fork: 'M7 3v8a2 2 0 0 0 4 0V3M9 11v10M17 3c-2 0-3 2-3 5s1 4 3 4v9', cup: 'M4 8h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM17 9h1a3 3 0 0 1 0 6h-1M8 3v2M12 3v2',
+  fuel: 'M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h12M4 10h10M14 8l3 3v6a2 2 0 0 0 4 0V9l-3-3', car: 'M5 16h14M6 16l1.5-5h9L18 16M5 16v3h2v-3M17 16v3h2v-3M8 13.5h.01M16 13.5h.01',
+  bolt: 'M13 2L4 14h7l-1 8 9-12h-7z', shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z', heart: 'M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z',
+  spark: 'M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6', bag: 'M5 8h14l-1 12H6zM9 8V6a3 3 0 0 1 6 0v2', shirt: 'M8 3l4 3 4-3 5 4-3 3v10H6V10L3 7z',
+  sofa: 'M4 11V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3M3 11h18v6H3zM5 17v2M19 17v2', ticket: 'M3 8a2 2 0 0 0 0 4v4h18v-4a2 2 0 0 1 0-4V4H3zM14 4v16', play: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM10 9l5 3-5 3z',
+  wrench: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.5-.5-.5-2.5z', paw: 'M8 7h.01M16 7h.01M5 12h.01M19 12h.01M12 13c-3 0-5 3-5 5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2c0-2-2-5-5-5z',
+  gift: 'M3 9h18v4H3zM5 13h14v8H5zM12 9v12M12 9c-2-4-6-4-6-1s4 1 6 1zM12 9c2-4 6-4 6-1s-4 1-6 1z', doc: 'M6 3h9l4 4v14H6zM14 3v5h5M9 13h6M9 17h6', home: 'M3 11l9-7 9 7v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z',
+  percent: 'M19 5L5 19M7 7h.01M17 17h.01', dots: 'M5 12h.01M12 12h.01M19 12h.01', arrows: 'M7 7h13l-3-3M17 17H4l3 3', down: 'M12 4v14M6 12l6 6 6-6', user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0', card: 'M3 6h18v12H3zM3 10h18M7 15h3'
+};
+const CAT_LOOK = {
+  Groceries: ['cart', 'teal'], 'Eating out': ['fork', 'orange'], Cafes: ['cup', 'orange'], Fuel: ['fuel', 'blue'], Transport: ['car', 'blue'], Bills: ['bolt', 'yellow'], Insurance: ['shield', 'blue'],
+  Health: ['heart', 'red'], 'Personal care': ['spark', 'pink'], Shopping: ['bag', 'pink'], Clothing: ['shirt', 'pink'], 'Home & furniture': ['sofa', 'teal'], Entertainment: ['ticket', 'violet'],
+  Subscriptions: ['play', 'red'], Services: ['wrench', 'grey'], Pets: ['paw', 'orange'], Gifts: ['gift', 'violet'], Rego: ['doc', 'grey'], 'Council rates': ['home', 'grey'], 'Interest & fees': ['percent', 'red'], Other: ['dots', 'grey'],
+  Income: ['down', 'teal'], 'Money in': ['down', 'teal'], Rent: ['home', 'yellow'], Mortgage: ['home', 'blue'], 'Car loan': ['car', 'grey'], 'Child support': ['user', 'grey'],
+  'Partner mortgage share': ['user', 'violet'], 'Partner other': ['user', 'violet'], Transfer: ['arrows', 'grey'], "Partner's card": ['card', 'violet']
+};
+const catColor = (k) => `var(--c-${(CAT_LOOK[k] || CAT_LOOK.Other)[1]})`;
+function catIcon(k) {
+  const [ic] = CAT_LOOK[k] || CAT_LOOK.Other;
+  const ns = 'http://www.w3.org/2000/svg'; const svg = document.createElementNS(ns, 'svg'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(ns, 'path'); path.setAttribute('d', ICONS[ic]); svg.append(path);
+  return el('span', { class: 'ci', style: `--c:${catColor(k)}` }, svg);
+}
+function ringSvg(frac) {
+  const ns = 'http://www.w3.org/2000/svg'; const svg = document.createElementNS(ns, 'svg'); svg.setAttribute('viewBox', '0 0 48 48'); svg.setAttribute('class', 'ringsvg'); svg.setAttribute('aria-hidden', 'true');
+  const C = 2 * Math.PI * 19; const f = Math.max(0, Math.min(1, frac || 0));
+  for (const [stroke, dash] of [['var(--surface-2)', `${C} ${C}`], ['var(--accent)', `${C * f} ${C}`]]) { const c = document.createElementNS(ns, 'circle'); for (const [a, v] of Object.entries({ cx: 24, cy: 24, r: 19, fill: 'none', stroke, 'stroke-width': 6, 'stroke-linecap': 'round', 'stroke-dasharray': dash, transform: 'rotate(-90 24 24)' })) c.setAttribute(a, v); svg.append(c); }
+  return svg;
+}
 const LUMPY_CATS = new Set(['Rego','Council rates']);
 const NAB_MAP = { 'Restaurants & takeaway':'Eating out','Cafe & coffee':'Cafes','Groceries':'Groceries','Fuel':'Fuel','Parking & tolls':'Transport','Travel expenses':'Transport','Vehicle expenses':'Transport','Phone & internet':'Bills','Utilities':'Bills','Insurance':'Insurance','Medical':'Health','Other shopping':'Shopping','Clothing & accessories':'Clothing','Homeware':'Home & furniture','Home improvements':'Home & furniture','Media':'Entertainment','Hobbies':'Entertainment','Subscriptions':'Subscriptions','Electronics & technology':'Subscriptions','Services':'Services','Pets':'Pets','Fees':'Interest & fees','Loans':'Interest & fees','Government':'Other','Gifts & donations':'Gifts' };
 const TYPES = { cash:'Cash account', offset:'Offset account', card:'Credit card', super:'Super', invest:'Investments', property:'Property', vehicle:'Vehicle', other:'Other asset', mortgage:'Mortgage', loan:'Loan' };
@@ -306,8 +337,10 @@ function lineChart(host, pts, opts = {}) {
   for (let g = 0; g <= 2; g++) { const yy = pad.t + (g * (H - pad.t - pad.b)) / 2; mk('line', { x1: 0, x2: W, y1: yy, y2: yy, stroke: 'var(--line)', 'stroke-width': 1 }); }
   if (pts.length > 1) {
     const d = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join('');
-    mk('path', { d: d + `L${x(pts.length - 1)},${H - pad.b}L${x(0)},${H - pad.b}Z`, fill: 'var(--accent-soft)', opacity: 0.7 });
-    mk('path', { d, fill: 'none', stroke: 'var(--accent)', 'stroke-width': 2.2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+    const gid = 'g' + Math.random().toString(36).slice(2, 8); const defs = mk('defs', {}); const lg = document.createElementNS(ns, 'linearGradient'); lg.setAttribute('id', gid); lg.setAttribute('x1', 0); lg.setAttribute('y1', 0); lg.setAttribute('x2', 0); lg.setAttribute('y2', 1);
+    for (const [o, op] of [[0, 0.35], [1, 0]]) { const st = document.createElementNS(ns, 'stop'); st.setAttribute('offset', o); st.setAttribute('stop-color', 'var(--accent)'); st.setAttribute('stop-opacity', op); lg.append(st); } defs.append(lg);
+    mk('path', { d: d + `L${x(pts.length - 1)},${H - pad.b}L${x(0)},${H - pad.b}Z`, fill: `url(#${gid})` });
+    mk('path', { d, fill: 'none', stroke: 'var(--accent)', 'stroke-width': 3, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
   }
   pts.forEach((p, i) => { mk('circle', { cx: x(i), cy: y(p.v), r: i === pts.length - 1 ? 4.5 : 2.5, fill: 'var(--accent)' }); });
   const step = Math.ceil(pts.length / 6);
@@ -380,7 +413,7 @@ function renderHome() {
   const cur = netWorth(m); const prevM = ms.filter((x) => x < m).pop(); const prev = prevM ? netWorth(prevM) : null;
   $('#h-nw').textContent = S.accounts.length ? $0(cur.nw) : '—';
   const d = $('#h-nwd'); d.replaceChildren();
-  if (prev && S.accounts.length) { const ch = cur.nw - prev.nw; d.append(el('span', { class: ch >= 0 ? 'pos' : 'neg', text: sgn(ch) }), ` since ${mLabel(prevM)}`); }
+  if (prev && S.accounts.length) { const ch = cur.nw - prev.nw; d.append(el('span', { class: 'delta ' + (ch >= 0 ? 'pos' : 'neg'), text: `${sgn(ch)} since ${mLabel(prevM)}` })); }
   else d.append(S.accounts.length ? `At end of ${mLabel(m, true)}` : 'Add your accounts in Wealth to see this.');
   if (cur.missing.length) d.append(el('span', { class: 'muted', text: ` · no balance yet for ${cur.missing.length} account${cur.missing.length > 1 ? 's' : ''}` }));
 
@@ -390,7 +423,7 @@ function renderHome() {
   const ess = n(c.fixed.rent) + n(c.fixed.carLoan) + n(c.childSupport) + (f.mortgageHalf || 0) + n(c.everydayTarget);
   stats.append(
     stat('Cash flow', f.hasData ? $0(f.net) : '—', f.net >= 0 ? 'pos' : 'neg', f.hasData ? `${$0(f.netExLumpy)} without one-offs` : 'Import or key in this month'),
-    stat('Savings rate', f.rate == null ? '—' : pct(f.rate), f.rate >= 0 ? 'pos' : 'neg', 'Of money in'),
+    el('div', { class: 'stat ring' }, ringSvg(f.rate), el('div', {}, el('span', { class: 'l', text: 'Savings rate' }), el('span', { class: 'v ' + (f.rate == null ? '' : f.rate >= 0 ? 'pos' : 'neg'), text: f.rate == null ? '—' : pct(f.rate) }), el('span', { class: 'd muted', text: 'Of money in' }))),
     stat('Everyday spending', f.hasData ? $0(f.everyday) : '—', f.everyday <= c.everydayTarget ? 'pos' : 'neg', `Target ${$0(c.everydayTarget)}`),
     stat('Emergency cover', cur.liquid > 0 && ess ? (cur.liquid / ess).toFixed(1) + ' months' : '—', '', `Cash ${$k(cur.liquid)}, your share`)
   );
@@ -455,6 +488,7 @@ async function renderSpend() {
     el('div', { class: 'stat' }, el('span', { class: 'l', text: 'Your everyday' }), el('span', { class: 'v ' + (f.everyday <= c.everydayTarget ? 'pos' : 'neg'), text: $0(f.everyday) })),
     el('div', { class: 'stat' }, el('span', { class: 'l', text: 'One-offs' }), el('span', { class: 'v', text: $0(f.lumpy) })),
     el('div', { class: 'stat' }, el('span', { class: 'l', text: pLabel("Partner's card") }), el('span', { class: 'v', text: $0(n(md.shonnyCard)) }))),
+    el('div', { class: 'alloc cats', role: 'img', 'aria-label': 'Spending by category' }, Object.entries(md.spend || {}).filter(([, v]) => n(v) > 0).sort((a, b) => b[1] - a[1]).map(([k, v]) => el('i', { style: `width:${(n(v) / Math.max(f.cardSpend, n(c.everydayTarget), 1)) * 100}%;--c:${catColor(k)}`, title: k })), el('i', { class: 'rest' })),
     el('p', { class: 'cap muted', text: f.shonnyOnCard ? `${$0(f.shonnyOnCard)} of the card spending is treated as ${pName()}'s share, from transfers beyond the mortgage share and ${pName()}'s card.` : 'Tap a category on any transaction to fix it. Changes update the month straight away.' }));
   const cats = $('#s-cats'); cats.replaceChildren();
   const sp = Object.entries(md.spend || {}).filter(([, v]) => n(v) > 0).sort((a, b) => b[1] - a[1]);
@@ -462,7 +496,7 @@ async function renderSpend() {
   $('#s-total').textContent = sp.length ? $0(sp.reduce((s, [, v]) => s + n(v), 0)) : '';
   if (!sp.length) cats.append(el('p', { class: 'cap muted', text: 'No spending recorded for this month yet.' }));
   const pickCat = (k) => { S.catFilter = S.catFilter === k ? null : k; renderSpend().then(() => { if (S.catFilter) $('#s-txcard').scrollIntoView({ behavior: 'smooth', block: 'start' }); }); };
-  for (const [k, v] of sp) { const tgt = c.targets[k]; const over = tgt && v > tgt; cats.append(el('div', { class: 'catrow tap' + (S.catFilter === k ? ' sel' : ''), role: 'button', tabindex: '0', 'aria-label': `Show ${k} transactions`, onclick: () => pickCat(k), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickCat(k); } } }, el('div', { class: 'row' }, el('span', { text: k }), el('span', { class: 'num ' + (over ? 'neg' : ''), text: $0(v) + (tgt ? ` / ${$0(tgt)}` : '') })), el('div', { class: 'bar' }, el('i', { class: LUMPY_CATS.has(k) ? 'lumpy' : over ? 'over' : '', style: `width:${(v / max) * 100}%` })))); }
+  for (const [k, v] of sp) { const tgt = c.targets[k]; const over = tgt && v > tgt; cats.append(el('div', { class: 'catrow tap' + (S.catFilter === k ? ' sel' : ''), role: 'button', tabindex: '0', 'aria-label': `Show ${k} transactions`, onclick: () => pickCat(k), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickCat(k); } } }, el('div', { class: 'cat-line' }, catIcon(k), el('div', { class: 'cat-body' }, el('div', { class: 'row' }, el('span', { text: k }), el('span', { class: 'num ' + (over ? 'neg' : ''), text: $0(v) + (tgt ? ` / ${$0(tgt)}` : '') })), el('div', { class: 'bar' }, el('i', { class: over ? 'over' : 'cat', style: `width:${(v / max) * 100}%;--c:${catColor(k)}` })))))); }
 
   // recurring charges
   const subs = $('#s-subs'); subs.replaceChildren(el('h2', { text: 'Recurring charges' }));
@@ -506,9 +540,10 @@ async function renderSpend() {
       }
     });
     const lumpyBtn = SPEND_CATS.includes(t.cat) ? el('button', { class: 'pill' + (isLumpy(t) ? ' ok' : ''), type: 'button', text: isLumpy(t) ? 'One-off' : 'Mark one-off', onclick: async () => { t.lumpy = !isLumpy(t); await writeDoc('tx/' + m, { rows: S.tx[m], updatedAt: new Date().toISOString() }); await applySummary(m, false); renderSpend(); } }) : null;
-    const partnerBtn = SPEND_CATS.includes(t.cat) && t.amt < 0 ? el('button', { class: 'pill' + (t.partner ? ' ok' : ''), type: 'button', 'aria-pressed': t.partner ? 'true' : 'false', text: t.partner ? `${pName()}'s` : `Mark ${pName()}'s`, onclick: async () => { t.partner = !t.partner || undefined; await writeDoc('tx/' + m, { rows: S.tx[m] }); await applySummary(m, false); renderSpend(); } }) : null;
+    const partnerBtn = SPEND_CATS.includes(t.cat) && t.amt < 0 ? el('button', { class: 'pill' + (t.partner ? ' on' : ''), type: 'button', 'aria-pressed': t.partner ? 'true' : 'false', text: t.partner ? `${pName()}'s` : `Mark ${pName()}'s`, onclick: async () => { t.partner = !t.partner || undefined; await writeDoc('tx/' + m, { rows: S.tx[m] }); await applySummary(m, false); renderSpend(); } }) : null;
     const excluded = FLOW_CATS.includes(t.cat) && ['Transfer', "Partner's card"].includes(t.cat);
-    list.append(el('div', { class: 'tx' + (excluded ? ' excluded' : '') },
+    list.append(el('div', { class: 'tx has-ic' + (excluded ? ' excluded' : '') },
+      catIcon(t.cat),
       el('span', { class: 'desc', text: t.merchant || t.desc }),
       el('span', { class: 'num ' + (t.amt > 0 ? 'pos' : ''), text: $2(t.amt) }),
       el('span', { class: 'meta' }, el('span', { text: t.date.slice(8) + ' ' + MONTHS[+t.date.slice(5, 7) - 1] + (t.acct ? ' · …' + t.acct : '') }), sel, lumpyBtn, partnerBtn)));
@@ -532,7 +567,7 @@ function renderBudget() {
     const tgt = n(c.targets[k]); const a = n(actual[k]); if (!tgt && !a) continue;
     const ratio = tgt ? a / tgt : (a ? 1 : 0); const over = tgt && a > tgt;
     const open = () => { S.catFilter = k; go('spend'); setTimeout(() => $('#s-txcard')?.scrollIntoView({ block: 'start' }), 300); };
-    box.append(el('div', { class: 'catrow' + (a ? ' tap' : ''), role: a ? 'button' : null, tabindex: a ? '0' : null, 'aria-label': a ? `Show ${k} transactions` : null, onclick: a ? open : null, onkeydown: a ? (e) => { if (e.key === 'Enter') open(); } : null }, el('div', { class: 'row' }, el('span', { text: k }), el('span', { class: 'num cap ' + (over ? 'neg' : 'muted'), text: `${$0(a)} of ${tgt ? $0(tgt) : 'no target'}` })), el('div', { class: 'bar' }, el('i', { class: LUMPY_CATS.has(k) ? 'lumpy' : over ? 'over' : '', style: `width:${Math.min(100, ratio * 100)}%` }))));
+    box.append(el('div', { class: 'catrow' + (a ? ' tap' : ''), role: a ? 'button' : null, tabindex: a ? '0' : null, 'aria-label': a ? `Show ${k} transactions` : null, onclick: a ? open : null, onkeydown: a ? (e) => { if (e.key === 'Enter') open(); } : null }, el('div', { class: 'cat-line' }, catIcon(k), el('div', { class: 'cat-body' }, el('div', { class: 'row' }, el('span', { text: k }), el('span', { class: 'num cap ' + (over ? 'neg' : 'muted'), text: `${$0(a)} of ${tgt ? $0(tgt) : 'no target'}` })), el('div', { class: 'bar' }, el('i', { class: over ? 'over' : 'cat', style: `width:${Math.min(100, ratio * 100)}%;--c:${catColor(k)}` }))))));
   }
   if (!box.children.length) box.append(el('p', { class: 'cap muted', text: 'Set targets to compare against.' }));
   const sink = $('#b-sink'); sink.replaceChildren(el('div', { class: 'list' }, (c.sinking || []).map((x) => el('div', { class: 'row' }, el('span', { text: x.name }), el('span', { class: 'num', text: `${$0(n(x.yearly))}/yr · ${$0(n(x.yearly) / 12)}/mo` })))), el('div', { class: 'row', style: 'padding-top:8px' }, el('strong', { text: 'Set aside each month' }), el('strong', { class: 'num', text: $0(sinkMonthly) })));
@@ -636,7 +671,7 @@ function goalSheet() { const c = cfg(); sheet('Cash goal', el('div', { class: 'c
 
 // ---------- investments ----------
 const KINDS = { etf: 'ETFs', stock: 'Shares', crypto: 'Crypto', fund: 'Managed funds' };
-const KIND_C = { etf: 'var(--accent)', stock: '#0f9d6b', crypto: '#f59f4c', fund: '#9b6bd6' };
+const KIND_C = { etf: 'var(--c-violet)', stock: 'var(--c-teal)', crypto: 'var(--c-orange)', fund: 'var(--c-pink)' };
 const hUnits = (h) => h.lots?.length ? h.lots.reduce((s, l) => s + n(l.units), 0) - n(h.sold) : n(h.units);
 const hCost = (h) => h.lots?.length ? h.lots.reduce((s, l) => s + n(l.units) * n(l.price) + n(l.fee), 0) : n(h.cost);
 const hValue = (h) => hUnits(h) * n(h.price);
@@ -904,7 +939,11 @@ function settingsSheet() {
 
   const persistTxt = S.persisted === true ? 'The browser has agreed to keep this data unless you clear it yourself.' : S.persisted === false ? "The browser may clear this data if the phone runs low on space. Installing the app usually fixes that. Keep backups." : 'Keep backups, in case the browser clears its storage.';
   const about = el('div', { class: 'card' }, el('h2', { text: 'On this device' }), el('p', { class: 'cap muted', text: 'Nothing is sent anywhere. The only request the app makes is to fetch the price links above. ' + persistTxt }));
-  sheet('Settings', el('div', { style: 'display:flex;flex-direction:column;gap:var(--s3)' }, household, prices, backup, about));
+  const themeSeg = el('div', { class: 'seg theme', role: 'group', 'aria-label': 'Theme' });
+  const drawTheme = () => themeSeg.replaceChildren(...[['system', 'Follow phone'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => el('button', { type: 'button', 'aria-pressed': window.wtTheme?.get() === k ? 'true' : 'false', text: l, onclick: () => { window.wtTheme?.set(k); drawTheme(); render(); } })));
+  drawTheme();
+  const appearance = el('div', { class: 'card' }, el('h2', { text: 'Appearance' }), themeSeg);
+  sheet('Settings', el('div', { style: 'display:flex;flex-direction:column;gap:var(--s3)' }, appearance, household, prices, backup, about));
 }
 
 function renderFirstRun(host) {
