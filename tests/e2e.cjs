@@ -132,10 +132,32 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   await p.reload(); await p.waitForTimeout(500);
   await ctx.setOffline(true);
   await p.reload(); await p.waitForTimeout(800); await p.click('.tab[data-tab=home]');
-  ok((await p.textContent('#h-nw')).startsWith('$'), 'app opens offline with data');
+  const offTxt = await p.textContent('#h-nw'); ok(offTxt.startsWith('$') || offTxt.startsWith('−$'), 'app opens offline with data: ' + offTxt);
   await p.click('.tab[data-tab=checkin]'); await pick('#v-checkin [data-pick=pdfIn]', pdfPath); await p.waitForTimeout(2500);
   ok(await p.isVisible('text=Balances from NAB'), 'PDF import works offline');
   await ctx.setOffline(false);
+
+  // Swiping between tabs
+  const swipe = (sel, x0, x1) => p.evaluate(([sel, x0, x1]) => {
+    const t = document.querySelector(sel); const r = t.getBoundingClientRect(); const y = r.top + Math.min(40, r.height / 2);
+    const mk = (x) => new Touch({ identifier: 1, target: t, clientX: x, clientY: y });
+    t.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, touches: [mk(x0)], changedTouches: [mk(x0)] }));
+    t.dispatchEvent(new TouchEvent('touchend', { bubbles: true, touches: [], changedTouches: [mk(x1)] }));
+  }, [sel, x0, x1]);
+  await closeSheets(); await p.click('.tab[data-tab=home]'); await p.waitForTimeout(300);
+  await swipe('#h-stats', 300, 120); await p.waitForTimeout(300);
+  ok(await p.evaluate(() => location.hash) === '#checkin', 'swipe left moves to the next tab');
+  await swipe('#c-result', 100, 300); await p.waitForTimeout(300);
+  ok(await p.evaluate(() => location.hash) === '#home', 'swipe right moves back');
+  await swipe('#h-nwchart', 300, 120); await p.waitForTimeout(300);
+  ok(await p.evaluate(() => location.hash) === '#home', 'a swipe that starts on a chart does not change tab');
+
+  // Theme choice persists and colours the status bar
+  await closeSheets(); await p.click('#settingsBtn'); await p.locator('.seg.theme button', { hasText: 'Dark' }).click(); await closeSheets();
+  await p.reload(); await p.waitForTimeout(500);
+  ok(await p.evaluate(() => document.documentElement.dataset.theme === 'dark' && document.querySelector('meta[name=theme-color]').content === '#0d0f14' && getComputedStyle(document.body).backgroundColor === 'rgb(13, 15, 20)'), 'dark theme choice survives a reload');
+  await p.click('#settingsBtn'); await p.locator('.seg.theme button', { hasText: 'Light' }).click(); await closeSheets();
+  ok(await p.evaluate(() => getComputedStyle(document.body).backgroundColor === 'rgb(245, 245, 250)'), 'light theme applies straight away');
 
   // Backup reminder after 30 days
   await p.evaluate(async () => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); }); const tx = db.transaction('meta', 'readwrite'); tx.objectStore('meta').put(new Date(Date.now() - 31 * 864e5).toISOString(), 'lastBackup'); await new Promise((res) => { tx.oncomplete = res; }); });

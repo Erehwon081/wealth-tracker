@@ -8,7 +8,7 @@ App: https://erehwon081.github.io/wealth-tracker/
 
 ## Layout
 
-`www/` is the whole app and is what gets deployed (and later becomes the Capacitor `webDir`). `js/storage.js` is the only file that touches IndexedDB, behind a small get/put/del/getAll/replaceAll/snapshot interface, so a native storage adapter can replace it. pdf.js 3.11.174 and the two fonts (SIL OFL) are vendored so nothing loads from a CDN.
+`www/` is the whole app and is what gets deployed (and later becomes the Capacitor `webDir`). `js/storage.js` is the only file that touches IndexedDB, behind a small get/put/del/getAll/replaceAll/snapshot interface, so a native storage adapter can replace it. pdf.js 3.11.174 and the fonts (Bricolage Grotesque and Inter, SIL OFL) are vendored so nothing loads from a CDN.
 
 ## Backups
 

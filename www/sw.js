@@ -3,10 +3,10 @@
 const CACHE = 'wealth-tracker-__BUILD__';
 const SHELL = [
   './', 'index.html', 'app.css', 'manifest.json',
-  'js/app.js', 'js/storage.js', 'js/backup.js', 'js/csv.js', 'js/prices.js', 'js/sample.js',
+  'js/app.js', 'js/theme.js', 'js/storage.js', 'js/backup.js', 'js/csv.js', 'js/prices.js', 'js/sample.js',
   'vendor/pdfjs/pdf.min.js', 'vendor/pdfjs/pdf.worker.min.js',
   'fonts/bricolage-grotesque-latin-500-normal.woff2', 'fonts/bricolage-grotesque-latin-700-normal.woff2',
-  'fonts/schibsted-grotesk-latin-400-normal.woff2', 'fonts/schibsted-grotesk-latin-500-normal.woff2', 'fonts/schibsted-grotesk-latin-600-normal.woff2',
+  'fonts/inter-latin-400-normal.woff2', 'fonts/inter-latin-500-normal.woff2', 'fonts/inter-latin-600-normal.woff2',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
 ];
 
