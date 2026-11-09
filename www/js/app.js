@@ -469,10 +469,10 @@ function renderHome() {
   const stat = (l, v, cls, sub, subCls) => el('div', { class: 'stat' }, el('span', { class: 'l', text: l }), el('span', { class: 'v ' + (cls || ''), text: v }), sub ? el('span', { class: 'd ' + (subCls || 'muted'), text: sub }) : null);
   const ess = n(c.fixed.rent) + n(c.fixed.carLoan) + n(c.childSupport) + (f.mortgageHalf || 0) + n(c.everydayTarget);
   stats.append(
-    stat('Cash flow', f.hasData ? $0(f.net) : '—', f.net >= 0 ? 'pos' : 'neg', f.hasData ? `${$0(f.netExLumpy)} without one-offs` : 'Import or key in this month'),
+    stat('Cash flow', f.hasData ? $0(f.net) : '—', f.net >= 0 ? 'pos' : 'neg', f.hasData ? `${$0(f.netExLumpy)} excl. one-offs` : 'Import or key in this month'),
     el('div', { class: 'stat ring' }, ringSvg(f.rate), el('div', {}, el('span', { class: 'l', text: 'Savings rate' }), el('span', { class: 'v ' + (f.rate == null ? '' : f.rate >= 0 ? 'pos' : 'neg'), text: f.rate == null ? '—' : pct(f.rate) }), el('span', { class: 'd muted', text: 'Of money in' }))),
     stat('Everyday spending', f.hasData ? $0(f.everyday) : '—', f.everyday <= c.everydayTarget ? 'pos' : 'neg', `Target ${$0(c.everydayTarget)}`),
-    stat('Emergency cover', cur.liquid > 0 && ess ? (cur.liquid / ess).toFixed(1) + ' months' : '—', '', `Cash ${$k(cur.liquid)}, your share`)
+    stat('Emergency cover', cur.liquid > 0 && ess ? (cur.liquid / ess).toFixed(1) + ' months' : '—', '', `Your cash ${$k(cur.liquid)}`)
   );
   const nwPts = ms.filter((x) => S.months[x]?.balances && Object.keys(S.months[x].balances).length).map((x) => ({ m: x, v: netWorth(x).nw }));
   lineChart($('#h-nwchart'), nwPts, { label: 'Net worth by month', empty: 'Save a check-in to start the chart.' });
@@ -599,14 +599,18 @@ async function renderSpend() {
 
 function renderBudget() {
   const m = S.month; const c = cfg(); const f = flows(m); const md = S.months[m] || {};
-  const income = f.income || (S.months[sortedMonths().filter((x) => n(S.months[x].income) > 0).pop()]?.income ?? 0);
+  // Expected pay (from Budget > Pay) when set; otherwise this month's pay so far, or the last month that had pay.
+  const expected = expectedPay(c);
+  const lastPaid = sortedMonths().filter((x) => n(S.months[x].income) > 0).pop();
+  const income = expected ?? (f.income || (S.months[lastPaid]?.income ?? 0));
+  const payLabel = expected != null ? 'Pay, expected' : f.income ? `Pay received in ${mLabel(m)}` : lastPaid ? `Pay received in ${mLabel(lastPaid)}` : 'Pay';
   const sinkMonthly = (c.sinking || []).reduce((s, x) => s + n(x.yearly) / 12, 0);
   const mortgageHalf = f.mortgageHalf || (() => { const mm = S.accounts.filter((a) => a.type === 'mortgage').reduce((s, a) => s + n(a.repayment), 0); return mm * c.mortgageShare; })();
   const fixed = n(c.fixed.rent) + n(c.fixed.carLoan) + mortgageHalf + n(c.childSupport);
   const left = n(income) - fixed - sinkMonthly; const tTotal = Object.values(c.targets).reduce((s, v) => s + n(v), 0);
-  const top = $('#b-top'); top.replaceChildren(el('h2', { text: 'Where your pay goes' }));
+  const top = $('#b-top'); top.replaceChildren(el('div', { class: 'row' }, el('h2', { text: 'Where your pay goes' }), el('button', { class: 'btn small', type: 'button', text: 'Set pay', onclick: paySheet })));
   const line = (l, v, cls) => el('div', { class: 'row', style: 'padding-block:6px;border-top:1px solid var(--line)' }, el('span', { text: l }), el('span', { class: 'num ' + (cls || ''), text: v }));
-  top.append(line('Pay', $0(n(income))), line('Fixed costs', '−' + $0(fixed).replace('−', '')), line('Yearly bills set-aside', '−' + $0(sinkMonthly).replace('−', '')), line('Left for everyday', $0(left), left >= c.everydayTarget ? 'pos' : 'neg'), line('Everyday target', $0(c.everydayTarget)), line('Category targets add up to', $0(tTotal), tTotal > left ? 'neg' : ''));
+  top.append(line(payLabel, $0(n(income))), ...(expected != null && f.income ? [line(`Received so far in ${mLabel(m)}`, $0(f.income), 'muted')] : []), line('Fixed costs', '−' + $0(fixed).replace('−', '')), line('Yearly bills set-aside', '−' + $0(sinkMonthly).replace('−', '')), line('Left for everyday', $0(left), left >= c.everydayTarget ? 'pos' : 'neg'), line('Everyday target', $0(c.everydayTarget)), line('Category targets add up to', $0(tTotal), tTotal > left ? 'neg' : ''));
   top.append(el('p', { class: 'cap muted', text: left - c.everydayTarget >= 0 ? `About ${$0(left - c.everydayTarget)} a month spare at target.` : `Target is ${$0(c.everydayTarget - left)} more than you have. Lower it, or cut fixed costs.` }));
   const box = $('#b-cats'); box.replaceChildren();
   const actual = md.spend || {};
@@ -649,7 +653,7 @@ function renderWealth() {
     const b = balanceFor(a, m); const p = b ? payoff(b.v, a.rate, a.repayment) : null;
     const yrs = p && Number.isFinite(p.months) ? `${Math.floor(p.months / 12)}y ${p.months % 12}m to go` : p ? 'Repayment doesn\'t cover interest' : 'Add balance, rate and repayment';
     prop.append(el('div', { class: 'catrow' }, el('div', { class: 'row' }, el('strong', { text: a.name }), el('span', { class: 'num neg', text: b ? $0(b.v) : 'No balance' })),
-      el('div', { class: 'row cap muted' }, el('span', { text: [a.rate ? a.rate + '%' : null, a.repayment ? $0(a.repayment) + '/mo' : null, yrs].filter(Boolean).join(' · ') }), el('span', { text: p ? `~${$0(p.interestMonth)} interest/mo` : '' }))));
+      el('p', { class: 'cap muted', text: [a.rate ? a.rate + '%' : null, a.repayment ? $0(a.repayment) + '/mo' : null, yrs, p ? `about ${$0(p.interestMonth)} interest/mo` : null].filter(Boolean).join(' · ') })));
   }
   if (!hv && !morts.length && !loans.length) prop.append(el('p', { class: 'cap muted', text: 'Add the house, mortgage and car loan to see equity and payoff dates.' }));
 
@@ -714,6 +718,17 @@ function fixedSheet() {
     el('p', { class: 'cap muted', text: `Your mortgage share is ${pct(c.mortgageShare)}. Change it in Settings.` }));
   sheet('Fixed costs', body, () => saveConfig({ fixed: { rent: n($('#x-rent').value), carLoan: n($('#x-car').value) }, childSupport: n($('#x-cs').value) }));
 }
+const PAY_PER = { month: ['a month', 1], fortnight: ['a fortnight', 26 / 12], week: ['a week', 52 / 12] };
+function expectedPay(c) { const p = c.expectedPay; if (!p || !n(p.amount)) return null; return n(p.amount) * (PAY_PER[p.per] || PAY_PER.month)[1]; }
+function paySheet() {
+  const c = cfg(); const p = c.expectedPay || { amount: null, per: 'fortnight' };
+  const perSel = el('select', { id: 'pay-per', class: 'month-pick' }, Object.entries(PAY_PER).map(([k, [l]]) => el('option', { value: k, selected: k === (p.per || 'month') }, l)));
+  const body = el('div', { class: 'card' },
+    fieldRow('Take-home pay', 'After tax, per pay', moneyInput('pay-amt', p.amount, 'Take-home pay'), 'pay-amt'),
+    fieldRow('Paid', null, perSel, 'pay-per'),
+    el('p', { class: 'cap muted', text: 'Budget uses this as your monthly pay, so the plan stays steady through the month. Fortnightly and weekly pay are averaged over the year. Leave it empty to use the pay actually received.' }));
+  sheet('Expected pay', body, () => { const amt = $('#pay-amt').value.trim(); return saveConfig({ expectedPay: amt ? { amount: n(amt), per: $('#pay-per').value } : null }); });
+}
 function goalSheet() { const c = cfg(); sheet('Cash goal', el('div', { class: 'card' }, fieldRow('Cash savings goal', 'Your share of cash accounts', moneyInput('g-cash', c.goal.cash, 'Goal'), 'g-cash')), () => saveConfig({ goal: { cash: n($('#g-cash').value) } })); }
 
 // ---------- investments ----------
@@ -760,7 +775,7 @@ function renderInvest() {
   if (hs.length) {
     g.append(el('span', { class: T.g >= 0 ? 'pos' : 'neg', text: `${sgn(T.g)} (${T.c ? sgn(T.g / T.c * 100, (x) => x.toFixed(0) + '%') : '—'})` }), ` on ${$0(T.c)} invested`);
     const newest = hs.map((h) => h.priceAt || '').sort().pop();
-    if (newest) g.append(el('span', { class: 'muted', text: ` · prices ${new Date(newest + (newest.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}` }));
+    if (newest) g.append(el('span', { class: 'muted', style: 'display:block', text: `Prices as of ${new Date(newest + (newest.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}` }));
   } else g.append('Add your holdings to track them here.');
   // allocation
   const al = $('#i-alloc'); al.replaceChildren(el('h2', { text: 'Allocation' }));
@@ -779,7 +794,7 @@ function renderInvest() {
     li.append(el('div', {}, group.map((h) => {
       const v = hValue(h), c = hCost(h), gn = v - c, gp = c ? gn / c : 0; const share = gv ? v / gv : 0;
       return el('div', { class: 'hold', role: 'button', tabindex: '0', onclick: () => holdingSheet(h), onkeydown: (e) => { if (e.key === 'Enter') holdingSheet(h); } },
-        el('div', {}, el('div', { class: 'tk', text: h.ticker }), el('div', { class: 'nm', text: `${h.name || ''} · ${fmtUnits(hUnits(h))} @ ${fmtPrice(n(h.price))}` })),
+        el('div', {}, el('div', { class: 'tk', text: h.ticker }), el('div', { class: 'nm', text: h.name || '' }), el('div', { class: 'nm', text: `${fmtUnits(hUnits(h))} @ ${fmtPrice(n(h.price))}` })),
         el('div', { class: 'mid' }, sparkline(hSeries(h)), el('div', { class: 'r' }, el('div', { class: 'num', text: $0(v) }), el('div', { class: 'cap num ' + (gn >= 0 ? 'pos' : 'neg'), text: `${sgn(gn)} · ${c ? (gp * 100).toFixed(0) + '%' : '—'}` }))),
         h.target ? el('div', { class: 'cap muted', style: 'grid-column:1/-1', text: `${pct(share)} of ${KINDS[k]}, target ${h.target}%${Math.abs(share * 100 - h.target) >= 5 ? (share * 100 > h.target ? ' · over' : ' · under') : ''}` }) : null);
     })));

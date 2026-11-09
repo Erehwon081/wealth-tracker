@@ -152,6 +152,18 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   await swipe('#h-nwchart', 300, 120); await p.waitForTimeout(300);
   ok(await p.evaluate(() => location.hash) === '#home', 'a swipe that starts on a chart does not change tab');
 
+  // The bottom bar stays put while a tab slides in
+  await p.click('.tab[data-tab=home]'); await p.waitForTimeout(400);
+  await p.evaluate(() => { window.navTops = []; const f = () => { window.navTops.push(Math.round(document.querySelector('.tabs').getBoundingClientRect().top)); if (window.navTops.length < 25) requestAnimationFrame(f); }; requestAnimationFrame(f); });
+  await p.click('.tab[data-tab=checkin]'); await p.waitForTimeout(700);
+  ok(new Set(await p.evaluate(() => window.navTops)).size === 1, 'bottom bar does not move during the tab transition');
+
+  // Expected pay drives Budget
+  await p.click('.tab[data-tab=budget]'); await p.waitForTimeout(300);
+  await p.click('text=Set pay'); await p.fill('#pay-amt', '2000'); await p.selectOption('#pay-per', 'fortnight'); await p.click('.sheet .btn.primary'); await p.waitForTimeout(500);
+  const bt = await p.textContent('#b-top');
+  ok(bt.includes('Pay, expected') && bt.includes('$4,333'), 'expected fortnightly pay shows as the monthly budget pay');
+
   // Theme choice persists and colours the status bar
   await closeSheets(); await p.click('#settingsBtn'); await p.locator('.seg.theme button', { hasText: 'Dark' }).click(); await closeSheets();
   await p.reload(); await p.waitForTimeout(500);
