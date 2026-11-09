@@ -67,6 +67,19 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   const expected = named.tx['2026-10'].filter((t) => /^Shonny/.test(t.cat)).length;
   ok(shown.length === expected && expected > 0, `named partner categories show under the partner filter (${shown.length} of ${expected})`);
   ok((await p.textContent('#s-tx')).includes("Shonny's card"), 'they display with the partner name');
+
+  // Tagging a purchase on your card as the partner's
+  await p.locator('#s-filter button', { hasText: 'Spending' }).click(); await p.waitForTimeout(300);
+  const firstTx = p.locator('#s-tx .tx').first();
+  const amt = Math.abs(parseFloat((await firstTx.locator('.num').textContent()).replace(/[^0-9.]/g, '')));
+  await firstTx.locator('button', { hasText: "Mark Shonny's" }).click(); await p.waitForTimeout(400);
+  ok(await p.locator('#s-tx .tx').first().locator('button', { hasText: /^Shonny's$/ }).count() === 1, 'tag button toggles on');
+  await p.click('.tab[data-tab=checkin]'); await p.waitForTimeout(300);
+  const onCard = parseFloat(await p.inputValue('#f-shonnyOnCard'));
+  ok(onCard >= amt - 0.01, `tagged amount feeds the partner's share on your card (${onCard} >= ${amt})`);
+  await p.click('.tab[data-tab=spend]'); await p.waitForTimeout(300);
+  await p.locator('#s-filter button', { hasText: 'Shonny' }).click(); await p.waitForTimeout(300);
+  ok(await p.locator('#s-tx .tx', { hasText: "Shonny's" }).count() === expected + 1, 'tagged purchase shows under the partner filter');
   await p.click('.tab[data-tab=wealth]'); await p.waitForTimeout(300);
 
   // Restore encrypted: wrong then right passphrase

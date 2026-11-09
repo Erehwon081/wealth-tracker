@@ -150,14 +150,14 @@ function normaliseRows(raw) {
 const txKey = (t) => [t.date, t.amt.toFixed(2), t.acct, t.desc, t.bal ?? ''].join('|');
 function isLumpy(t) { return t.lumpy ?? (LUMPY_CATS.has(t.cat) || (SPEND_CATS.includes(t.cat) && -t.amt >= 400)); }
 function summarise(rows) {
-  const s = { income: 0, otherIn: 0, rent: 0, carLoan: 0, mortgagePaid: 0, childSupport: 0, shonnyMortgage: 0, shonnyOther: 0, shonnyCard: 0, spend: {}, lumpy: 0 };
+  const s = { income: 0, otherIn: 0, rent: 0, carLoan: 0, mortgagePaid: 0, childSupport: 0, shonnyMortgage: 0, shonnyOther: 0, shonnyCard: 0, tagged: 0, spend: {}, lumpy: 0 };
   for (const t of rows) {
     const v = t.amt; const c = t.cat;
     if (c === 'Income') s.income += v; else if (c === 'Money in') s.otherIn += v;
     else if (c === 'Rent') s.rent -= v; else if (c === 'Car loan') s.carLoan -= v; else if (c === 'Mortgage') s.mortgagePaid -= v; else if (c === 'Child support') s.childSupport -= v;
     else if (c === 'Partner mortgage share') s.shonnyMortgage += v; else if (c === 'Partner other') s.shonnyOther += v;
     else if (c === "Partner's card") s.shonnyCard -= v;
-    else if (SPEND_CATS.includes(c)) { s.spend[c] = (s.spend[c] || 0) - v; if (isLumpy(t)) s.lumpy -= v; }
+    else if (SPEND_CATS.includes(c)) { s.spend[c] = (s.spend[c] || 0) - v; if (isLumpy(t)) s.lumpy -= v; if (t.partner) s.tagged -= v; }
   }
   for (const k of Object.keys(s.spend)) s.spend[k] = Math.round(s.spend[k] * 100) / 100;
   return s;
@@ -200,7 +200,9 @@ async function applySummary(m, withBalances) {
   const rows = S.tx[m] || []; const s = summarise(rows); const c = cfg();
   const prev = S.months[m] || {};
   const half = s.mortgagePaid * c.mortgageShare;
-  const shonnyOnCard = Math.max(0, s.shonnyMortgage - half - s.shonnyCard);
+  // Partner's share on your card: the larger of what their extra transfers cover and what you've tagged as theirs.
+  // Taking the larger avoids counting a tagged purchase twice when a transfer already paid you back for it.
+  const shonnyOnCard = Math.max(0, s.shonnyMortgage - half - s.shonnyCard, s.tagged);
   const patch = { income: r2(s.income), otherIn: r2(s.otherIn), rent: r2(s.rent), carLoan: r2(s.carLoan), mortgagePaid: r2(s.mortgagePaid), shonnyMortgage: r2(s.shonnyMortgage), shonnyCard: r2(s.shonnyCard), shonnyOnCard: r2(shonnyOnCard), spend: s.spend, lumpy: r2(s.lumpy), txCount: rows.length, source: 'csv' };
   if (s.childSupport) patch.childSupport = r2(s.childSupport);
   if (withBalances) patch.balances = { ...(prev.balances || {}), ...balancesFromRows(rows) };
@@ -474,7 +476,7 @@ async function renderSpend() {
   const filters = [['spend', 'Spending'], ['flow', 'Bills & transfers'], ['shonny', pLabel("Partner's")], ['all', 'All']];
   const seg = $('#s-filter'); seg.replaceChildren(...filters.map(([k, l]) => el('button', { type: 'button', 'aria-pressed': !S.catFilter && S.filter === k ? 'true' : 'false', text: l, onclick: () => { S.filter = k; S.catFilter = null; renderSpend(); } })));
   const q = S.search.trim().toLowerCase();
-  let show = rows.filter((t) => S.catFilter ? t.cat === S.catFilter : (S.filter === 'all' || (S.filter === 'spend' ? SPEND_CATS.includes(t.cat) : S.filter === 'shonny' ? /Partner/.test(t.cat) : FLOW_CATS.includes(t.cat) && !/Partner/.test(t.cat))));
+  let show = rows.filter((t) => S.catFilter ? t.cat === S.catFilter : (S.filter === 'all' || (S.filter === 'spend' ? SPEND_CATS.includes(t.cat) : S.filter === 'shonny' ? /Partner/.test(t.cat) || t.partner : FLOW_CATS.includes(t.cat) && !/Partner/.test(t.cat))));
   if (q) show = show.filter((t) => (t.merchant + ' ' + t.desc).toLowerCase().includes(q));
   if (S.sort === 'amount') show = [...show].sort((a, b) => Math.abs(b.amt) - Math.abs(a.amt));
   $('#s-sort').textContent = S.sort === 'amount' ? 'Largest first' : 'Newest first';
@@ -504,11 +506,12 @@ async function renderSpend() {
       }
     });
     const lumpyBtn = SPEND_CATS.includes(t.cat) ? el('button', { class: 'pill' + (isLumpy(t) ? ' ok' : ''), type: 'button', text: isLumpy(t) ? 'One-off' : 'Mark one-off', onclick: async () => { t.lumpy = !isLumpy(t); await writeDoc('tx/' + m, { rows: S.tx[m], updatedAt: new Date().toISOString() }); await applySummary(m, false); renderSpend(); } }) : null;
+    const partnerBtn = SPEND_CATS.includes(t.cat) && t.amt < 0 ? el('button', { class: 'pill' + (t.partner ? ' ok' : ''), type: 'button', 'aria-pressed': t.partner ? 'true' : 'false', text: t.partner ? `${pName()}'s` : `Mark ${pName()}'s`, onclick: async () => { t.partner = !t.partner || undefined; await writeDoc('tx/' + m, { rows: S.tx[m] }); await applySummary(m, false); renderSpend(); } }) : null;
     const excluded = FLOW_CATS.includes(t.cat) && ['Transfer', "Partner's card"].includes(t.cat);
     list.append(el('div', { class: 'tx' + (excluded ? ' excluded' : '') },
       el('span', { class: 'desc', text: t.merchant || t.desc }),
       el('span', { class: 'num ' + (t.amt > 0 ? 'pos' : ''), text: $2(t.amt) }),
-      el('span', { class: 'meta' }, el('span', { text: t.date.slice(8) + ' ' + MONTHS[+t.date.slice(5, 7) - 1] + (t.acct ? ' · …' + t.acct : '') }), sel, lumpyBtn)));
+      el('span', { class: 'meta' }, el('span', { text: t.date.slice(8) + ' ' + MONTHS[+t.date.slice(5, 7) - 1] + (t.acct ? ' · …' + t.acct : '') }), sel, lumpyBtn, partnerBtn)));
   }
 }
 
