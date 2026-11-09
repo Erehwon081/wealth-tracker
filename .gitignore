@@ -4,3 +4,8 @@
 !package.json
 node_modules/
 .DS_Store
+
+# Capacitor: the Android project is generated in CI
+android/
+!package-lock.json
+!capacitor.config.json

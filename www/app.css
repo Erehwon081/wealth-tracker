@@ -42,9 +42,9 @@
 [hidden] { display: none !important; }
 html, body { background: var(--bg); color: var(--fg); }
 body { font-family: var(--f-body); font-size: var(--t-body); line-height: 1.45; }
-body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
-.wrap { max-width: 720px; margin-inline: auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 calc(96px + env(safe-area-inset-bottom, 0px)); }
-.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding-block: var(--s3); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px)); z-index: 10; background: var(--bg); }
+.wrap { max-width: 720px; margin-inline: auto; padding-left: max(16px, max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px))); padding-right: max(16px, max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px))); padding-block: 0 calc(96px + max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px))); }
+.top { position: sticky; top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px)); z-index: 5; background: var(--bg); display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding-block: var(--s3); }
 .brand { font-family: var(--f-display); font-weight: 700; font-size: 1.15rem; letter-spacing: -0.01em; }
 .brand small { display: block; font-family: var(--f-body); font-weight: 400; font-size: var(--t-cap); color: var(--muted); letter-spacing: 0; }
 select, input, button, textarea { font: inherit; color: inherit; }
@@ -115,7 +115,7 @@ textarea { width: 100%; min-height: 72px; background: var(--surface-2); border: 
 .seg { display: flex; background: var(--surface-2); border-radius: 999px; padding: 3px; gap: 2px; overflow-x: auto; }
 .seg button { border: 0; background: transparent; border-radius: 999px; padding: 6px 12px; font-size: var(--t-cap); font-weight: 500; color: var(--muted); white-space: nowrap; cursor: pointer; }
 .seg button[aria-pressed="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 3px rgb(16 24 40 / 0.12); }
-.tabs { position: fixed; inset: auto 0 0 0; z-index: 20; background: var(--nav-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); }
+.tabs { position: fixed; inset: auto 0 0 0; z-index: 20; background: var(--nav-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-top: 1px solid var(--line); padding-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px)); padding-left: max(8px, max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px))); padding-right: max(8px, max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px))); }
 .tabs .in { max-width: 720px; margin-inline: auto; display: grid; grid-template-columns: repeat(6, 1fr); }
 .alloc { display: flex; height: 12px; border-radius: 99px; overflow: hidden; gap: 2px; }
 .alloc i { display: block; height: 100%; }
@@ -136,8 +136,8 @@ textarea { width: 100%; min-height: 72px; background: var(--surface-2); border: 
 .tab[aria-current="page"] { color: var(--fg); font-weight: 600; }
 .tab[aria-current="page"] svg { stroke-width: 2.2; }
 .sheet-bg { position: fixed; inset: 0; background: var(--scrim); z-index: 30; display: flex; align-items: flex-end; justify-content: center; }
-.sheet { background: var(--bg); width: 100%; max-width: 720px; max-height: 88%; overflow: auto; border-radius: var(--r-lg) var(--r-lg) 0 0; padding: var(--s4) max(16px, env(safe-area-inset-right, 0px)) calc(var(--s5) + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); display: flex; flex-direction: column; gap: var(--s3); }
-.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(80px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 999px; z-index: 40; font-size: var(--t-cap); }
+.sheet { background: var(--bg); width: 100%; max-width: 720px; max-height: 88%; overflow: auto; border-radius: var(--r-lg) var(--r-lg) 0 0; padding: var(--s4) max(16px, max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px))) calc(var(--s5) + max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px))) max(16px, max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px))); display: flex; flex-direction: column; gap: var(--s3); }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(80px + max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px))); background: var(--fg); color: var(--bg); padding: 10px 16px; border-radius: 999px; z-index: 40; font-size: var(--t-cap); }
 .banner { background: var(--bad-soft); color: var(--bad); border-radius: var(--r); padding: var(--s3) var(--s4); font-size: var(--t-cap); }
 .note { background: var(--accent-soft); border-radius: var(--r); padding: var(--s3) var(--s4); font-size: var(--t-cap); }
 .empty { text-align: center; padding: var(--s5) var(--s4); color: var(--muted); display: flex; flex-direction: column; gap: var(--s3); align-items: center; }

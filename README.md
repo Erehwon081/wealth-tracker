@@ -25,3 +25,9 @@ For each of the ETFs, Stocks and Crypto tabs: File > Share > Publish to web, cho
 ## Deploying
 
 `.github/workflows/pages.yml` runs the unit tests and publishes `www/` on every push to `main`. In the repository's Settings > Pages, set Source to GitHub Actions once.
+
+## Android app
+
+`.github/workflows/android.yml` builds an APK with Capacitor from `www/`. The Android project isn't committed: CI generates it with `npx cap add android`, makes the launcher icon and splash from `assets/`, sets the version from the run number, and signs the APK with the key in the repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. Each signed build on `main` is published as a GitHub Release. Keep a copy of the keystore: an update only installs over the app if it is signed with the same key.
+
+In the app, backups go through the Android share sheet (choose Drive or Files), and the back button closes an open panel, then returns to Home, then exits. The app and the website keep separate data, so move between them with a backup.

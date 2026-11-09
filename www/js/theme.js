@@ -8,6 +8,8 @@
     var root = document.documentElement;
     if (c === 'light' || c === 'dark') root.setAttribute('data-theme', c); else root.removeAttribute('data-theme');
     var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', BG[effective(c)]);
+    // In the Android app, light status bar icons on dark, dark icons on light.
+    try { var sb = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SystemBars; if (sb) sb.setStyle({ style: effective(c) === 'dark' ? 'DARK' : 'LIGHT' }); } catch (e) {}
   }
   window.wtTheme = {
     get: choice,
