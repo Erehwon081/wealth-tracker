@@ -67,12 +67,18 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          # Capacitor calls apksigner by name; it lives in the newest Android build-tools folder.
+          export PATH="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n1):$PATH"
+          command -v apksigner
           npx cap build android --androidreleasetype APK --signing-type apksigner \
             --keystorepath "$RUNNER_TEMP/release.jks" --keystorepass "$ANDROID_KEYSTORE_PASSWORD" \
             --keystorealias "$ANDROID_KEY_ALIAS" --keystorealiaspass "$ANDROID_KEY_PASSWORD"
           rm -f "$RUNNER_TEMP/release.jks"
           mkdir -p dist
-          cp "$(find android/app/build/outputs/apk/release -name '*-signed.apk' | head -n1)" "dist/wealth-tracker-${VERSION}.apk"
+          ls -la android/app/build/outputs/apk/release
+          APK="$(find android/app/build/outputs/apk/release -name '*.apk' ! -name '*unsigned*' | head -n1)"
+          test -n "$APK"
+          cp "$APK" "dist/wealth-tracker-${VERSION}.apk"
 
       - name: Build debug APK (no signing key set)
         if: env.HAS_KEY != 'true'
