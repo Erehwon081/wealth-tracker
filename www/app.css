@@ -41,7 +41,7 @@ p { margin: 0; }
 .hero.feature h3, .hero.feature .muted { color: rgb(255 255 255 / 0.78); }
 .hero.feature .pos { color: #c6f6df; } .hero.feature .neg { color: #ffd2d3; }
 .hero .big { font-family: var(--f-display); font-weight: 700; font-size: clamp(2rem, 9vw, 2.8rem); letter-spacing: -0.02em; line-height: 1.05; font-variant-numeric: tabular-nums; }
-.num { font-family: var(--f-num); font-variant-numeric: tabular-nums; font-weight: 500; }
+.num { font-family: var(--f-num); font-weight: 500; }
 .pos { color: var(--good); } .neg { color: var(--bad); } .wrn { color: var(--warn); }
 .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s3); }
 .stat { background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: var(--r); padding: var(--s3) var(--s4); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
