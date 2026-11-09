@@ -209,3 +209,11 @@ button.pill:not(.ok):not(.on) { border-color: var(--line); background: transpare
 .stat .d { line-height: 1.3; }
 .hero .big { margin-block: 2px 4px; }
 .catrow p.cap { line-height: 1.4; }
+/* Long amounts: never wrap or squeeze a number; the label beside it wraps instead. */
+.num { white-space: nowrap; }
+.row > :last-child:not(:first-child) { flex-shrink: 0; text-align: right; white-space: nowrap; }
+.row > :first-child:not(:last-child) { flex: 1 1 auto; }
+.hold .r, .tx > .num { white-space: nowrap; }
+/* Stat tiles shrink a long figure to fit the tile. */
+.stat { container-type: inline-size; }
+.stat .v { white-space: nowrap; font-size: clamp(1rem, 15cqi, 1.45rem); }
