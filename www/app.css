@@ -41,7 +41,7 @@
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { background: var(--bg); color: var(--fg); }
-body { font-family: var(--f-body); font-size: var(--t-body); line-height: 1.45; }
+body { font-family: var(--f-body); font-size: var(--t-body); line-height: 1.45; padding-top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px)); } /* start below the status bar, so the sticky header never overlaps the first card */
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px)); z-index: 10; background: var(--bg); }
 .wrap { max-width: 720px; margin-inline: auto; padding-left: max(16px, max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px))); padding-right: max(16px, max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px))); padding-block: 0 calc(96px + max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px))); }
 .top { position: sticky; top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px)); z-index: 5; background: var(--bg); display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding-block: var(--s3); }

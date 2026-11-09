@@ -137,6 +137,15 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   ok(await p.isVisible('text=Balances from NAB'), 'PDF import works offline');
   await ctx.setOffline(false);
 
+  // Android app draws behind the system bars and reports their size as CSS variables
+  await closeSheets(); await p.click('.tab[data-tab=home]'); await p.waitForTimeout(300);
+  await p.evaluate(() => { const s = document.documentElement.style; s.setProperty('--safe-area-inset-top', '40px'); s.setProperty('--safe-area-inset-bottom', '24px'); window.scrollTo(0, 0); });
+  await p.waitForTimeout(200);
+  const ins = await p.evaluate(() => { const h = document.querySelector('.top').getBoundingClientRect(); const first = document.querySelector('#v-home > :not([hidden])').getBoundingClientRect(); window.scrollTo(0, document.documentElement.scrollHeight); const last = [...document.querySelectorAll('#v-home > :not([hidden])')].pop().getBoundingClientRect(); const nav = document.querySelector('.tabs').getBoundingClientRect(); return { top: h.top, hb: h.bottom, first: first.top, last: last.bottom, nav: nav.top, navPad: getComputedStyle(document.querySelector('.tabs')).paddingBottom }; });
+  ok(ins.top >= 40 && ins.first >= ins.hb - 0.5, `header sits below the status bar and clear of the first card (${JSON.stringify(ins)})`);
+  ok(ins.last <= ins.nav + 0.5 && ins.navPad === '24px', 'last card scrolls clear of the bottom bar, which clears the gesture bar');
+  await p.evaluate(() => { const s = document.documentElement.style; s.removeProperty('--safe-area-inset-top'); s.removeProperty('--safe-area-inset-bottom'); });
+
   // Swiping between tabs
   const swipe = (sel, x0, x1) => p.evaluate(([sel, x0, x1]) => {
     const t = document.querySelector(sel); const r = t.getBoundingClientRect(); const y = r.top + Math.min(40, r.height / 2);
