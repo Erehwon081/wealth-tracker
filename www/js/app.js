@@ -900,7 +900,16 @@ const listTxt = (a) => (a || []).join(', ');
 const listVal = (v) => String(v || '').split(',').map((x) => x.trim()).filter(Boolean);
 const fmtDate = (iso) => new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
 
-function downloadFile(name, text) {
+// ---------- Android app (Capacitor) ----------
+const NATIVE = !!window.Capacitor?.isNativePlatform?.();
+const plugin = (name) => window.Capacitor?.Plugins?.[name];
+async function downloadFile(name, text) {
+  if (NATIVE) {
+    // The Android WebView can't download a blob, so write the file to the app's cache and open the share sheet (Drive, Files, email…).
+    const { uri } = await plugin('Filesystem').writeFile({ path: name, data: text, directory: 'CACHE', encoding: 'utf8' });
+    await plugin('Share').share({ title: name, files: [uri], dialogTitle: 'Save your backup' });
+    return;
+  }
   const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
   const a = el('a', { href: url, download: name, style: 'display:none' }); document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
@@ -910,7 +919,8 @@ async function backupNow(pass) {
     setSave('Preparing backup…');
     let out = buildBackup(await store.snapshot());
     if (pass) out = await encryptBackup(out, pass);
-    downloadFile(backupFileName(), JSON.stringify(out, null, pass ? 0 : 1));
+    try { await downloadFile(backupFileName(), JSON.stringify(out, null, pass ? 0 : 1)); }
+    catch (e) { setSave('Saved on this device'); toast(/cancel/i.test(e?.message || '') ? 'Backup not saved' : "Couldn't share the backup. Try again."); return false; }
     await setMeta('lastBackup', new Date().toISOString()); setSave('Saved on this device');
     toast(pass ? 'Encrypted backup downloaded' : 'Backup downloaded'); render(); return true;
   } catch { setSave('Saved on this device'); toast("Couldn't make the backup. Try again."); return false; }
@@ -987,7 +997,7 @@ function settingsSheet() {
 
   const last = S.meta.lastBackup;
   const backup = el('div', { class: 'card' }, el('h2', { text: 'Backup' }),
-    el('p', { class: 'cap muted', text: (last ? `Last backup ${fmtDate(last)}. ` : 'No backup made on this device yet. ') + 'Your data lives only on this device, so keep a backup somewhere safe, such as your Google Drive.' }),
+    el('p', { class: 'cap muted', text: (last ? `Last backup ${fmtDate(last)}. ` : 'No backup made on this device yet. ') + 'Your data lives only on this device, so keep a backup somewhere safe, such as your Google Drive.' + (NATIVE ? ' Back up now opens the share sheet: pick Drive or Files to save it.' : '') }),
     fieldRow('Passphrase', 'Optional. Encrypts the backup file', el('input', { id: 'st-pass', class: 'plain', type: 'password', autocomplete: 'new-password' }), 'st-pass'),
     fieldRow('Repeat passphrase', null, el('input', { id: 'st-pass2', class: 'plain', type: 'password', autocomplete: 'new-password' }), 'st-pass2'),
     el('p', { class: 'cap muted', text: "There's no way to open an encrypted backup without its passphrase." }),
@@ -1132,5 +1142,13 @@ async function reloadAll() { await loadState(); S.month = pickStartMonth(); fill
   if (hasData() && !S.meta.since) await setMeta('since', new Date().toISOString());
   onReady();
   S.persisted = await store.persist();
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('./sw.js').catch(() => {});
+  // The Android app ships its files inside the APK, so it needs no service worker.
+  if (!NATIVE && 'serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('./sw.js').catch(() => {});
+  if (NATIVE) plugin('App')?.addListener('backButton', () => {
+    // Back closes an open panel, then returns to Home, then leaves the app.
+    const open = $$('.sheet-bg').pop();
+    if (open) { open.querySelector('.sheet .row .btn')?.click(); return; }
+    if (S.view !== 'home') { go('home'); return; }
+    plugin('App').exitApp();
+  });
 })();
