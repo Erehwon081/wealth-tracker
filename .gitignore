@@ -1,0 +1,6 @@
+# Never commit personal data: backups and any other JSON exports stay off the public repo.
+*.json
+!manifest.json
+!package.json
+node_modules/
+.DS_Store

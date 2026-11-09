@@ -1,0 +1,123 @@
+// End-to-end check in Chromium. Run: python3 -m http.server 8765 --bind 127.0.0.1 -d www & node tests/e2e.cjs
+// Needs Playwright with Chromium available (not run in CI).
+const { chromium, devices } = require('playwright');
+const fs = require('fs'); const os = require('os'); const path = require('path');
+const BASE = process.env.BASE || 'http://127.0.0.1:8765/';
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wt-e2e-'));
+let failed = 0;
+const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!cond) failed++; };
+
+(async () => {
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ ...devices['Pixel 7'], acceptDownloads: true });
+  const p = await ctx.newPage();
+  const errors = []; p.on('pageerror', (e) => errors.push(e.message)); p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  const offsite = []; p.on('request', (r) => { if (!r.url().startsWith(BASE)) offsite.push(r.url()); });
+  const pick = async (selector, files) => { const [fc] = await Promise.all([p.waitForEvent('filechooser'), p.click(selector)]); await fc.setFiles(files); };
+  const closeSheets = () => p.evaluate(() => document.querySelectorAll('.sheet-bg').forEach((b) => b.remove()));
+
+  await p.goto(BASE); await p.waitForTimeout(600);
+  ok(await p.isVisible('#h-first'), 'first run shows the empty state');
+  await p.click('text=Load sample data'); await p.waitForTimeout(600);
+  ok(await p.isHidden('#h-first') && (await p.textContent('#h-nw')).startsWith('$'), 'sample data loads');
+  ok(await p.isHidden('#h-nudge'), 'no backup reminder right after first use');
+
+  // Settings: partner name replaces Partner labels
+  await p.click('#settingsBtn');
+  await p.fill('#st-pname', 'Sam'); await p.fill('#st-ms', '40'); await p.fill('#st-every', '3000');
+  await p.click('text=Save household'); await p.waitForTimeout(300); await closeSheets();
+  await p.click('.tab[data-tab=spend]'); await p.waitForTimeout(400);
+  ok((await p.textContent('#s-summary')).includes("Sam's card") && (await p.textContent('#s-filter')).includes("Sam's"), 'partner display name shows in Spending');
+  await p.click('.tab[data-tab=budget]'); await p.waitForTimeout(300);
+  ok((await p.textContent('#b-fixed')).includes('Mortgage, your 40%') && (await p.textContent('#b-top')).includes('$3,000'), 'mortgage share and everyday target come from Settings');
+
+  // Backup, plain
+  await p.click('#settingsBtn');
+  let [dl] = await Promise.all([p.waitForEvent('download'), p.click('#st-backup')]);
+  ok(/^wealth-tracker-backup-\d{4}-\d{2}-\d{2}\.json$/.test(dl.suggestedFilename()), 'backup file name ' + dl.suggestedFilename());
+  const plainPath = path.join(tmp, 'plain.json'); await dl.saveAs(plainPath);
+  const plain = JSON.parse(fs.readFileSync(plainPath, 'utf8'));
+  ok(plain.format === 'wealth-tracker-backup' && plain.version === 1 && plain.config.partnerName === 'Sam' && Array.isArray(plain.tx['2026-10']), 'backup has the expected shape');
+  // Backup, encrypted
+  await p.fill('#st-pass', 'pass phrase 1'); await p.fill('#st-pass2', 'pass phrase 1');
+  [dl] = await Promise.all([p.waitForEvent('download'), p.click('#st-backup')]);
+  const encPath = path.join(tmp, 'enc.json'); await dl.saveAs(encPath);
+  const enc = JSON.parse(fs.readFileSync(encPath, 'utf8'));
+  ok(enc.encrypted && !fs.readFileSync(encPath, 'utf8').includes('Everyday'), 'encrypted backup hides the data');
+  await closeSheets();
+
+  // Restore the user's existing format (built from the sample, as an older export would be)
+  const legacy = { format: 'wealth-tracker-backup', version: 1, config: { ...plain.config, partnerName: 'Legacy' }, accounts: plain.accounts.slice(0, 3), months: { '2026-10': plain.months['2026-10'] }, tx: { '2026-10': plain.tx['2026-10'] }, holdings: plain.holdings.slice(0, 2) };
+  const legacyPath = path.join(tmp, 'legacy.json'); fs.writeFileSync(legacyPath, JSON.stringify(legacy));
+  await p.click('#settingsBtn'); await pick('text=Restore from file', legacyPath); await p.waitForTimeout(300);
+  ok((await p.textContent('.sheet-bg:last-child')).includes('3 accounts, 1 months'), 'restore preview counts');
+  await p.click('text=Replace and restore'); await p.waitForTimeout(600);
+  await p.click('.tab[data-tab=wealth]'); await p.waitForTimeout(300);
+  ok((await p.$$('#w-list .row')).length === 3, 'restore replaced the accounts');
+
+  // Restore encrypted: wrong then right passphrase
+  await p.click('#settingsBtn'); await pick('text=Restore from file', encPath); await p.waitForTimeout(200);
+  await p.fill('#rp-pass', 'nope'); await p.click('text=Unlock'); await p.waitForTimeout(2500);
+  ok((await p.textContent('.toast')).includes('Wrong passphrase'), 'wrong passphrase is refused');
+  await closeSheets(); await p.click('#settingsBtn'); await pick('text=Restore from file', encPath); await p.waitForTimeout(200);
+  await p.fill('#rp-pass', 'pass phrase 1'); await p.click('text=Unlock'); await p.waitForTimeout(2500);
+  await p.click('text=Replace and restore'); await p.waitForTimeout(600);
+  ok((await p.$$('#w-list .row')).length === plain.accounts.length, 'encrypted restore brings everything back');
+
+  // Data survives a reload
+  await p.reload(); await p.waitForTimeout(600);
+  ok((await p.$$('#w-list .row')).length === plain.accounts.length, 'data persists in IndexedDB across reloads');
+
+  // CSV import through the hidden input and its button
+  const csv = 'Date,Amount,Account Number,Transaction Type,Transaction Details,Balance,Category,Merchant Name\n' +
+    '05 Dec 26,-42.50,082-000 12342222,EFTPOS,WOOLWORTHS 1234 MELBOURNE,,Groceries,Woolworths\n' +
+    '06 Dec 26,-61.00,082-000 99993333,EFTPOS,KMART MELBOURNE,,Other shopping,Kmart\n';
+  const csvPath = path.join(tmp, 'nab.csv'); fs.writeFileSync(csvPath, csv);
+  await p.click('.tab[data-tab=spend]'); await p.waitForTimeout(300);
+  await pick('#dropzone [data-pick=csvIn]', csvPath); await p.waitForTimeout(800);
+  ok(await p.inputValue('#monthPick') === '2026-12' && (await p.textContent('#s-tx')).includes('Woolworths'), 'CSV import works from the button');
+  ok((await p.textContent('#s-tx')).includes("Sam's card"), 'partner card from Settings classifies the import');
+
+  // Account list PDF through vendored pdf.js
+  const pdfPage = await ctx.newPage();
+  await pdfPage.setContent('<p>Accounts 09/11/2026 10:15</p><p>Everyday account BSB: 083-000 Acc: 12341111 $1,234.56</p><p>Credit card Card ending 2222 -$2,000.00</p>');
+  const pdfPath = path.join(tmp, 'accounts.pdf');
+  const pb = await chromium.launch(); const pp = await pb.newPage(); await pp.setContent(await pdfPage.content()); await pp.pdf({ path: pdfPath }); await pb.close(); await pdfPage.close();
+  await p.click('.tab[data-tab=checkin]'); await p.waitForTimeout(300);
+  await pick('#v-checkin [data-pick=pdfIn]', pdfPath); await p.waitForTimeout(2500);
+  ok(await p.isVisible('text=Balances from NAB'), 'account list PDF opens with the vendored pdf.js');
+  await closeSheets();
+
+  // Live prices: mock the published CSV with CORS headers
+  const csvEtf = 'Ticker,Name,X,Price,C,Units,Value\nASX:VAS,V,ASX,$120.00,,40,"$4,800.00"\n\nhistory\nVAS,1,2,3';
+  await ctx.route('https://docs.google.com/**', (r) => r.fulfill({ status: 200, contentType: 'text/csv', headers: { 'Access-Control-Allow-Origin': '*' }, body: csvEtf }));
+  await p.click('#settingsBtn');
+  await p.fill('#st-ps-etf', 'https://docs.google.com/spreadsheets/d/e/2PACX-test/pub?gid=1&single=true&output=csv');
+  await p.click('text=Save links'); await p.waitForTimeout(300); await closeSheets();
+  await p.click('.tab[data-tab=invest]'); await p.waitForTimeout(1200);
+  const live = await p.textContent('#i-live');
+  ok(live.startsWith('Live from your Google Sheet'), 'prices fetched on opening Invest: ' + live);
+  ok((await p.textContent('#i-list')).includes('$120.00'), 'VAS price updated from the sheet');
+  await p.fill('#st-ps-etf', '').catch(() => {});
+
+  // Offline: service worker serves the shell
+  await p.goto(BASE); await p.waitForFunction(() => navigator.serviceWorker.controller !== null, null, { timeout: 10000 }).catch(() => {});
+  await p.reload(); await p.waitForTimeout(500);
+  await ctx.setOffline(true);
+  await p.reload(); await p.waitForTimeout(800); await p.click('.tab[data-tab=home]');
+  ok((await p.textContent('#h-nw')).startsWith('$'), 'app opens offline with data');
+  await p.click('.tab[data-tab=checkin]'); await pick('#v-checkin [data-pick=pdfIn]', pdfPath); await p.waitForTimeout(2500);
+  ok(await p.isVisible('text=Balances from NAB'), 'PDF import works offline');
+  await ctx.setOffline(false);
+
+  // Backup reminder after 30 days
+  await p.evaluate(async () => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); }); const tx = db.transaction('meta', 'readwrite'); tx.objectStore('meta').put(new Date(Date.now() - 31 * 864e5).toISOString(), 'lastBackup'); await new Promise((res) => { tx.oncomplete = res; }); });
+  await p.goto(BASE + '#home'); await p.reload(); await p.waitForTimeout(600);
+  ok(await p.isVisible('#h-nudge'), 'reminder shows when the last backup is over 30 days old');
+
+  ok(offsite.every((u) => u.startsWith('https://docs.google.com/')), 'no requests leave the app except the price link: ' + JSON.stringify([...new Set(offsite)]));
+  ok(errors.length === 0, 'no page errors ' + JSON.stringify(errors));
+  await browser.close();
+  console.log(failed ? `${failed} failed` : 'all passed');
+  process.exit(failed ? 1 : 0);
+})().catch((e) => { console.error(e); process.exit(1); });
