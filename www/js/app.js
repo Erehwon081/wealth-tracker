@@ -70,6 +70,23 @@ const clone = (o) => JSON.parse(JSON.stringify(o ?? null));
 let toastT; const toast = (msg) => { $$('.toast').forEach((t) => t.remove()); const t = el('div', { class: 'toast', role: 'status', text: msg }); document.body.append(t); clearTimeout(toastT); toastT = setTimeout(() => t.remove(), 2600); };
 const setSave = (txt) => { $('#saveState').textContent = txt; };
 
+// ---------- motion ----------
+const calm = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+// A short tick on toggles and tab changes; phones without a vibration motor ignore it.
+const buzz = (ms = 8) => { if (calm()) return; try { navigator.vibrate?.(ms); } catch {} };
+// Plays the entrance (bars fill, charts draw, numbers count) on a section, once per visit.
+function playIntro(sec) { if (!sec || calm()) return; sec.classList.remove('anim'); void sec.offsetWidth; sec.classList.add('anim'); clearTimeout(sec._animT); sec._animT = setTimeout(() => sec.classList.remove('anim'), 1200); }
+const intro = (node) => !!node?.closest?.('section.anim');
+const lastShown = new WeakMap();
+function countTo(node, value, fmt) {
+  const from = lastShown.has(node) ? lastShown.get(node) : 0; lastShown.set(node, value);
+  cancelAnimationFrame(node._raf);
+  if (calm() || !intro(node) || from === value) { node.textContent = fmt(value); return; }
+  node.textContent = fmt(from); const t0 = performance.now(), dur = 700;
+  const step = (t) => { const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3); node.textContent = fmt(from + (value - from) * e); if (k < 1) node._raf = requestAnimationFrame(step); };
+  node._raf = requestAnimationFrame(step);
+}
+
 const DEFAULT_CONFIG = {
   mortgageShare: 0.5, childSupport: 0, everydayTarget: 5200,
   fixed: { rent: 1387, carLoan: 1081.36 },
@@ -340,12 +357,34 @@ function lineChart(host, pts, opts = {}) {
     const gid = 'g' + Math.random().toString(36).slice(2, 8); const defs = mk('defs', {}); const lg = document.createElementNS(ns, 'linearGradient'); lg.setAttribute('id', gid); lg.setAttribute('x1', 0); lg.setAttribute('y1', 0); lg.setAttribute('x2', 0); lg.setAttribute('y2', 1);
     for (const [o, op] of [[0, 0.35], [1, 0]]) { const st = document.createElementNS(ns, 'stop'); st.setAttribute('offset', o); st.setAttribute('stop-color', 'var(--accent)'); st.setAttribute('stop-opacity', op); lg.append(st); } defs.append(lg);
     mk('path', { d: d + `L${x(pts.length - 1)},${H - pad.b}L${x(0)},${H - pad.b}Z`, fill: `url(#${gid})` });
-    mk('path', { d, fill: 'none', stroke: 'var(--accent)', 'stroke-width': 3, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+    mk('path', { d, fill: 'none', stroke: 'var(--accent)', 'stroke-width': 3, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', pathLength: 1, class: 'draw' });
   }
   pts.forEach((p, i) => { mk('circle', { cx: x(i), cy: y(p.v), r: i === pts.length - 1 ? 4.5 : 2.5, fill: 'var(--accent)' }); });
   const step = Math.ceil(pts.length / 6);
   pts.forEach((p, i) => { if (i % step === 0 || i === pts.length - 1) { const t = mk('text', { x: x(i), y: H - 6, 'text-anchor': 'middle' }); t.textContent = mLabel(p.m); } });
   const lastI = pts.length - 1; const lt = mk('text', { x: Math.min(W - 4, Math.max(4, x(lastI))), y: y(pts[lastI].v) - 10, 'text-anchor': pts.length === 1 ? 'middle' : 'end' }); lt.textContent = $k(pts[lastI].v); lt.style.fill = 'var(--fg)';
+  // Drag along the chart to read any point.
+  if (pts.length > 1) {
+    const g = mk('g', { class: 'scrub', visibility: 'hidden' }); const add = (t, a) => { const e = document.createElementNS(ns, t); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); g.append(e); return e; };
+    const vl = add('line', { y1: pad.t - 6, y2: H - pad.b, stroke: 'var(--muted)', 'stroke-width': 1, 'stroke-dasharray': '3 4' });
+    const dot = add('circle', { r: 6, fill: 'var(--surface)', stroke: 'var(--accent)', 'stroke-width': 3 });
+    const box = add('rect', { rx: 8, height: 22, fill: 'var(--fg)' }); const tx = add('text', { 'text-anchor': 'middle', class: 'tip' });
+    let cur = -1;
+    const show = (clientX) => {
+      const r = svg.getBoundingClientRect(); const px = ((clientX - r.left) / r.width) * W;
+      let i = 0; for (let k = 1; k < pts.length; k++) if (Math.abs(x(k) - px) < Math.abs(x(i) - px)) i = k;
+      if (i !== cur) { cur = i; buzz(4); }
+      const cx = x(i), cy = y(pts[i].v); vl.setAttribute('x1', cx); vl.setAttribute('x2', cx); dot.setAttribute('cx', cx); dot.setAttribute('cy', cy);
+      tx.textContent = `${mLabel(pts[i].m)} · ${$k(pts[i].v)}`; const w = tx.textContent.length * 6.4 + 16; const bx = Math.max(0, Math.min(W - w, cx - w / 2));
+      box.setAttribute('x', bx); box.setAttribute('width', w); box.setAttribute('y', 0); tx.setAttribute('x', bx + w / 2); tx.setAttribute('y', 15);
+      g.setAttribute('visibility', 'visible'); lt.setAttribute('visibility', 'hidden');
+    };
+    const hide = () => { g.setAttribute('visibility', 'hidden'); lt.setAttribute('visibility', 'visible'); cur = -1; };
+    svg.style.touchAction = 'pan-y';
+    svg.addEventListener('pointerdown', (e) => { svg.setPointerCapture?.(e.pointerId); show(e.clientX); });
+    svg.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' || e.buttons) show(e.clientX); });
+    svg.addEventListener('pointerup', hide); svg.addEventListener('pointercancel', hide); svg.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') hide(); });
+  }
   host.append(svg);
 }
 function barChart(host, pts, opts = {}) {
@@ -362,7 +401,7 @@ function barChart(host, pts, opts = {}) {
   const step = Math.ceil(pts.length / 6);
   pts.forEach((p, i) => {
     const top = y(Math.max(0, p.v)), h = Math.max(1.5, Math.abs(y(p.v) - y(0)));
-    mk('rect', { x: x(i) - bw / 2, y: top, width: bw, height: h, rx: 3, fill: p.v >= 0 ? 'var(--good)' : 'var(--bad)', opacity: 0.85 });
+    mk('rect', { x: x(i) - bw / 2, y: top, width: bw, height: h, rx: 3, fill: p.v >= 0 ? 'var(--good)' : 'var(--bad)', opacity: 0.85, class: 'grow ' + (p.v >= 0 ? 'up' : 'down'), style: `animation-delay:${i * 40}ms` });
     const vt = mk('text', { x: x(i), y: p.v >= 0 ? top - 5 : top + h + 11, 'text-anchor': 'middle' }); vt.textContent = $k(p.v);
     if (i % step === 0 || i === pts.length - 1) { const t = mk('text', { x: x(i), y: H - 5, 'text-anchor': 'middle' }); t.textContent = mLabel(p.m); }
   });
@@ -372,13 +411,21 @@ function barChart(host, pts, opts = {}) {
 // ---------- sheet (modal) ----------
 function sheet(title, body, onSave, saveLabel = 'Save') {
   const bg = el('div', { class: 'sheet-bg', onclick: (e) => { if (e.target === bg) close(); } });
-  const close = () => bg.remove();
+  let closing = false;
+  const close = () => { if (closing) return; closing = true; if (calm()) { bg.remove(); return; } bg.classList.remove('open'); s.style.transform = ''; setTimeout(() => bg.remove(), 260); };
   const s = el('div', { class: 'sheet', role: 'dialog', 'aria-label': title },
+    el('div', { class: 'grab', 'aria-hidden': 'true' }),
     el('div', { class: 'row' }, el('h2', { text: title }), el('button', { class: 'btn small', type: 'button', onclick: close, text: 'Close' })),
     body,
     onSave ? el('div', { class: 'btns' }, el('button', { class: 'btn primary', type: 'button', text: saveLabel, onclick: async () => { if ((await onSave()) !== false) close(); } })) : null);
   bg.append(s); document.body.append(bg);
-  if (onSave) setTimeout(() => s.querySelector('input,select,textarea')?.focus(), 50);
+  requestAnimationFrame(() => requestAnimationFrame(() => bg.classList.add('open')));
+  // Drag down from the top of the sheet to close it.
+  let y0 = null, dy = 0, t0 = 0;
+  s.addEventListener('touchstart', (e) => { if (s.scrollTop > 0 || e.target.closest('input,select,textarea,button')) { y0 = null; return; } y0 = e.touches[0].clientY; dy = 0; t0 = Date.now(); }, { passive: true });
+  s.addEventListener('touchmove', (e) => { if (y0 == null) return; dy = e.touches[0].clientY - y0; if (dy > 0 && s.scrollTop <= 0) { s.style.transition = 'none'; s.style.transform = `translateY(${dy}px)`; } }, { passive: true });
+  s.addEventListener('touchend', () => { if (y0 == null) return; s.style.transition = ''; const fast = dy > 40 && Date.now() - t0 < 250; if (dy > 110 || fast) close(); else s.style.transform = ''; y0 = null; });
+  if (onSave) setTimeout(() => s.querySelector('input,select,textarea')?.focus(), 300);
   return close;
 }
 const moneyInput = (id, val, label) => el('div', { class: 'money' }, el('input', { id, type: 'text', inputmode: 'decimal', value: has(val) ? String(Number(val) !== 0 && Math.abs(Number(val)) < 1 ? +Number(val).toPrecision(4) : r2(Number(val))) : '', 'aria-label': label, placeholder: '0' }));
@@ -411,7 +458,7 @@ function renderHome() {
   renderFirstRun($('#h-first')); renderBackupNudge($('#h-nudge'));
   const m = S.month; const ms = sortedMonths();
   const cur = netWorth(m); const prevM = ms.filter((x) => x < m).pop(); const prev = prevM ? netWorth(prevM) : null;
-  $('#h-nw').textContent = S.accounts.length ? $0(cur.nw) : '—';
+  if (S.accounts.length) countTo($('#h-nw'), cur.nw, $0); else $('#h-nw').textContent = '—';
   const d = $('#h-nwd'); d.replaceChildren();
   if (prev && S.accounts.length) { const ch = cur.nw - prev.nw; d.append(el('span', { class: 'delta ' + (ch >= 0 ? 'pos' : 'neg'), text: `${sgn(ch)} since ${mLabel(prevM)}` })); }
   else d.append(S.accounts.length ? `At end of ${mLabel(m, true)}` : 'Add your accounts in Wealth to see this.');
@@ -708,7 +755,7 @@ function invTotals() { let v = 0, c = 0, d = 0; for (const h of S.holdings) { if
 function renderInvest() {
   const hs = S.holdings.filter((h) => hUnits(h) > 0).sort((a, b) => hValue(b) - hValue(a));
   const T = invTotals();
-  $('#i-total').textContent = hs.length ? $0(T.v) : '—';
+  if (hs.length) countTo($('#i-total'), T.v, $0); else $('#i-total').textContent = '—';
   const g = $('#i-gain'); g.replaceChildren();
   if (hs.length) {
     g.append(el('span', { class: T.g >= 0 ? 'pos' : 'neg', text: `${sgn(T.g)} (${T.c ? sgn(T.g / T.c * 100, (x) => x.toFixed(0) + '%') : '—'})` }), ` on ${$0(T.c)} invested`);
@@ -969,12 +1016,17 @@ function fillMonthPick() {
   const sel = $('#monthPick'); const set = new Set(sortedMonths()); set.add(thisMonth()); set.add(mAdd(thisMonth(), -1)); if (S.month) set.add(S.month);
   const list = [...set].sort().reverse(); sel.replaceChildren(...list.map((m) => el('option', { value: m, selected: m === S.month }, mLabel(m, true))));
 }
+const VIEWS = ['home', 'checkin', 'spend', 'budget', 'invest', 'wealth'];
 function go(view) {
+  const from = S.view; const dir = VIEWS.indexOf(view) - VIEWS.indexOf(from);
   S.view = view; $('#topTitle').textContent = { home: 'Home', checkin: 'Check-in', spend: 'Spending', budget: 'Budget', invest: 'Invest', wealth: 'Wealth' }[view] || 'Home';
   $$('[data-view]').forEach((s) => { s.hidden = s.dataset.view !== view; });
   $$('.tab').forEach((t) => t.setAttribute('aria-current', t.dataset.tab === view ? 'page' : 'false'));
   try { localStorage.setItem('bm-view', view); } catch {}
   if (location.hash.slice(1) !== view) history.replaceState(null, '', '#' + view);
+  const sec = $(`section[data-view="${view}"]`);
+  if (from !== view && !calm()) { sec.classList.remove('from-left', 'from-right'); void sec.offsetWidth; sec.classList.add(dir < 0 ? 'from-left' : 'from-right'); }
+  playIntro(sec);
   render(true); window.scrollTo(0, 0);
 }
 function render(force) {
@@ -988,7 +1040,33 @@ function render(force) {
 }
 
 // ---------- events ----------
-$$('.tab').forEach((t) => t.addEventListener('click', () => go(t.dataset.tab)));
+$$('.tab').forEach((t) => t.addEventListener('click', () => { if (t.dataset.tab !== S.view) buzz(); go(t.dataset.tab); }));
+$$('section[data-view]').forEach((sec) => sec.addEventListener('animationend', (e) => { if (e.target === sec) sec.classList.remove('from-left', 'from-right'); }));
+// Toggles and segmented buttons give a small tick.
+document.addEventListener('click', (e) => { if (e.target.closest?.('button.pill, .seg button, .chip')) buzz(); }, true);
+
+// Swipe left or right to move between tabs.
+(() => {
+  let sx = 0, sy = 0, st = 0, ok = false;
+  const blocked = (t) => {
+    if (document.querySelector('.sheet-bg')) return true;
+    if (t.closest?.('input, select, textarea, .chart, .seg, .tabs, [data-noswipe]')) return true;
+    for (let n = t; n && n !== document.body; n = n.parentElement) { if (n.scrollWidth > n.clientWidth + 2) { const ox = getComputedStyle(n).overflowX; if (ox === 'auto' || ox === 'scroll') return true; } }
+    return false;
+  };
+  document.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) { ok = false; return; }
+    const p = e.touches[0]; sx = p.clientX; sy = p.clientY; st = Date.now();
+    ok = sx > 24 && sx < window.innerWidth - 24 && !blocked(e.target); // leave the screen edges to Android's back gesture
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (!ok) return; ok = false;
+    const p = e.changedTouches[0]; const dx = p.clientX - sx, dy = p.clientY - sy;
+    if (Date.now() - st > 700 || Math.abs(dx) < 70 || Math.abs(dx) < 2 * Math.abs(dy)) return;
+    const i = VIEWS.indexOf(S.view) + (dx < 0 ? 1 : -1);
+    if (i >= 0 && i < VIEWS.length) { buzz(); go(VIEWS[i]); }
+  }, { passive: true });
+})();
 $('#monthPick').addEventListener('change', (e) => { S.month = e.target.value; S.draft = null; S.catFilter = null; render(true); });
 $('#pdfIn').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importAccountPdf(f); });
 let sq; $('#s-search').addEventListener('input', (e) => { clearTimeout(sq); sq = setTimeout(() => { S.search = e.target.value; renderSpend(); }, 180); });
@@ -1020,7 +1098,7 @@ let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTime
 function pickStartMonth() { const ms = sortedMonths(); return ms.length ? ms[ms.length - 1] : mAdd(thisMonth(), -1); }
 function onReady() {
   if (!S.month) { S.month = pickStartMonth(); }
-  fillMonthPick(); render(S.view !== 'checkin' || !S.draft?.dirty);
+  fillMonthPick(); playIntro($(`section[data-view="${S.view}"]`)); render(S.view !== 'checkin' || !S.draft?.dirty);
 }
 async function loadState() {
   const [config, accounts, months, holdings, meta] = await Promise.all([store.get('config', 'app'), store.getAll('accounts'), store.getAll('months'), store.getAll('holdings'), store.getAll('meta')]);
