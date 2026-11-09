@@ -146,6 +146,17 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   ok(ins.last <= ins.nav + 0.5 && ins.navPad === '24px', 'last card scrolls clear of the bottom bar, which clears the gesture bar');
   await p.evaluate(() => { const s = document.documentElement.style; s.removeProperty('--safe-area-inset-top'); s.removeProperty('--safe-area-inset-bottom'); });
 
+  // Amounts never wrap or spill out of their card (tables scroll on purpose, so they're skipped)
+  const wrapped = [];
+  for (const t of ['home', 'checkin', 'spend', 'budget', 'invest', 'wealth']) {
+    await p.click(`.tab[data-tab=${t}]`); await p.waitForTimeout(900);
+    wrapped.push(...await p.evaluate((t) => [...document.querySelectorAll(`section[data-view="${t}"] .num, section[data-view="${t}"] .row > :last-child:not(:first-child), section[data-view="${t}"] .stat .v`)]
+      .filter((n) => !n.closest('table') && !n.matches('button') && !n.querySelector('button') && n.getBoundingClientRect().width)
+      .filter((n) => { const r = n.getBoundingClientRect(), cs = getComputedStyle(n); const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.45; const box = (n.closest('.card, .stat, .hero') || document.body).getBoundingClientRect(); return r.height > lh * 1.6 || r.right > box.right + 0.5; })
+      .map((n) => `${t}: ${n.textContent.trim().slice(0, 30)}`), t));
+  }
+  ok(wrapped.length === 0, 'no amount wraps or overflows its card on any tab ' + JSON.stringify(wrapped));
+
   // Swiping between tabs
   const swipe = (sel, x0, x1) => p.evaluate(([sel, x0, x1]) => {
     const t = document.querySelector(sel); const r = t.getBoundingClientRect(); const y = r.top + Math.min(40, r.height / 2);
