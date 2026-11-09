@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://docs.google.com https://*.googleusercontent.com; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#3056e8">
+<meta name="description" content="Local-first personal finance tracker. Your data stays on this device.">
+<title>Wealth Tracker</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="app.css">
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<header class="wrap top" id="top">
+  <div class="brand"><span id="topTitle">Home</span><small id="saveState">Loading…</small></div>
+  <div class="top-actions">
+    <select class="month-pick" id="monthPick" aria-label="Month"></select>
+    <button class="icon-btn" id="settingsBtn" type="button" aria-label="Settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  </div>
+</header>
+
+<main class="wrap" id="app">
+  <input type="file" id="pdfIn" accept="application/pdf,.pdf" hidden>
+  <input type="file" id="csvIn" accept=".csv,text/csv,text/comma-separated-values,application/csv,application/vnd.ms-excel,text/plain" multiple hidden>
+  <input type="file" id="restoreIn" accept=".json,application/json,text/plain,application/octet-stream" hidden>
+
+  <!-- HOME -->
+  <section data-view="home" id="v-home">
+    <div class="card" id="h-first" hidden></div>
+    <div class="note" id="h-nudge" role="status" hidden></div>
+    <div class="hero feature">
+      <h3>Net worth, your share</h3>
+      <div class="big" id="h-nw">—</div>
+      <div class="cap" id="h-nwd">&nbsp;</div>
+    </div>
+    <div class="grid2 wide" id="h-stats"></div>
+    <div class="card">
+      <div class="row"><h2>Net worth</h2><span class="pill" id="h-range">by month</span></div>
+      <div class="chart" id="h-nwchart"></div>
+    </div>
+    <div class="card">
+      <div class="row"><h2>Monthly cash flow</h2><span class="cap muted">after one-offs</span></div>
+      <div class="chart" id="h-cfchart"></div>
+      <p class="cap muted">Pay and money in, minus rent, car loan, your share of the mortgage, child support and your own spending.</p>
+    </div>
+    <div class="card" id="h-todo"></div>
+  </section>
+
+  <!-- CHECK-IN -->
+  <section data-view="checkin" id="v-checkin" hidden>
+    <div class="hero"><h3>Monthly check-in</h3><div class="big" style="font-size:1.6rem" id="c-title">—</div><p class="cap muted">Key in month-end balances and the month's money in and out, or fill them from your NAB files below.</p></div>
+    <div class="card">
+      <h2>Fill in from NAB</h2>
+      <p class="cap muted">The Accounts list PDF from NAB internet banking fills every balance, loans included. Transaction CSVs fill spending, pay, rent and the mortgage.</p>
+      <div class="btns"><button class="btn small primary" type="button" data-pick="pdfIn">Upload account list PDF</button><button class="btn small" type="button" data-pick="csvIn">Import transaction CSVs</button></div>
+    </div>
+    <div class="card"><h2>Balances at month end</h2><div id="c-bal"></div><button class="btn small" id="c-addacct" type="button">Add an account or loan</button></div>
+    <div class="card"><h2>Money in and out</h2><div id="c-flow"></div></div>
+    <div class="card"><h2>Notes</h2><textarea id="c-notes" aria-label="Notes for this month" placeholder="Bonus, big purchases, anything unusual"></textarea></div>
+    <div class="card" id="c-result"></div>
+    <div class="btns"><button class="btn primary" id="c-save" type="button">Save month</button><button class="btn" id="c-reset" type="button">Undo changes</button></div>
+  </section>
+
+  <!-- SPENDING -->
+  <section data-view="spend" id="v-spend" hidden>
+    <div class="drop" id="dropzone">
+      <strong>Import NAB transactions</strong>
+      <span class="cap muted">Choose one or more CSV exports: credit card, everyday and offset. Duplicates are skipped.</span>
+      <button class="btn small primary" type="button" data-pick="csvIn">Choose CSV files</button>
+    </div>
+    <div class="card" id="s-summary"></div>
+    <div class="card"><div class="row"><h2>By category</h2><span class="cap muted" id="s-total"></span></div><p class="cap muted">Tap a category to see its transactions.</p><div id="s-cats"></div></div>
+    <div class="card" id="s-subs"></div>
+    <div class="card" id="s-txcard">
+      <div class="row"><h2>Transactions</h2><span class="cap muted" id="s-count"></span></div>
+      <div class="seg" id="s-filter" role="group" aria-label="Show"></div>
+      <div class="txtools"><input id="s-search" class="plain" type="search" placeholder="Search merchant or description" aria-label="Search transactions" autocomplete="off"><button class="btn small" id="s-sort" type="button">Newest first</button></div>
+      <div id="s-active"></div>
+      <div id="s-tx"></div>
+    </div>
+  </section>
+
+  <!-- BUDGET -->
+  <section data-view="budget" id="v-budget" hidden>
+    <div class="card" id="b-top"></div>
+    <div class="card"><div class="row"><h2>Spending targets</h2><button class="btn small" id="b-edit" type="button">Edit targets</button></div><div id="b-cats"></div></div>
+    <div class="card"><div class="row"><h2>Yearly bills</h2><button class="btn small" id="b-sinkedit" type="button">Edit</button></div><p class="cap muted">Put this aside each month so rego, insurance and rates never land on the card in one hit.</p><div id="b-sink"></div></div>
+    <div class="card"><div class="row"><h2>Fixed costs</h2><button class="btn small" id="b-fixedit" type="button">Edit</button></div><div id="b-fixed"></div></div>
+  </section>
+
+  <!-- INVEST -->
+  <section data-view="invest" id="v-invest" hidden>
+    <div class="hero feature" id="i-hero"><h3>Shares, ETFs and crypto</h3><div class="big" id="i-total">—</div><div class="cap" id="i-gain">&nbsp;</div></div>
+    <div class="btns"><button class="btn primary" id="i-refresh" type="button">Refresh prices</button><button class="btn" id="i-prices" type="button">Edit prices</button><button class="btn" id="i-add" type="button">Add holding</button></div>
+    <p class="cap muted" id="i-live" role="status">Prices come from your Google Sheet links in Settings.</p>
+    <div class="card" id="i-alloc"></div>
+    <div class="card" id="i-list"></div>
+    <div class="card" id="i-divs"></div>
+  </section>
+
+  <!-- WEALTH -->
+  <section data-view="wealth" id="v-wealth" hidden>
+    <div class="card" id="w-mix"></div>
+    <div class="card" id="w-property"></div>
+    <div class="card"><div class="row"><h2>Accounts and loans</h2><button class="btn small" id="w-add" type="button">Add</button></div><div id="w-list"></div></div>
+    <div class="card" id="w-scen"></div>
+    <div class="card"><div class="row"><h2>Cash goal</h2><button class="btn small" id="w-goaledit" type="button">Edit</button></div><div id="w-goal"></div></div>
+    <div class="card"><h2>Month by month</h2><div style="overflow-x:auto"><table id="w-hist" style="border-collapse:collapse;width:100%;font-size:var(--t-cap)"></table></div></div>
+  </section>
+</main>
+
+<nav class="tabs" aria-label="Sections"><div class="in" id="tabs">
+  <button class="tab" data-tab="home" type="button"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
+  <button class="tab" data-tab="checkin" type="button"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>Check-in</button>
+  <button class="tab" data-tab="spend" type="button"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>Spending</button>
+  <button class="tab" data-tab="budget" type="button"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v8l6 4"/></svg>Budget</button>
+  <button class="tab" data-tab="invest" type="button"><svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>Invest</button>
+  <button class="tab" data-tab="wealth" type="button"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Wealth</button>
+</div></nav>
+</body>
+</html>
