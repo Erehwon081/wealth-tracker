@@ -1,0 +1,1117 @@
+<title>Wealth Tracker Demo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Schibsted+Grotesk:wght@400;500;600&display=swap">
+<style>
+/* Layout: one-column phone ledger, sticky month header, five tabs on a bottom bar; widens to a centred 720px column on desktop. */
+:root {
+  color-scheme: light;
+  --bg: #f4f6fb; --surface: #ffffff; --surface-2: #eef1f7; --line: #e3e8f1;
+  --fg: #101828; --muted: #667085; --accent: #3056e8; --accent-2: #5b7cff; --accent-soft: #e9eeff; --on-accent: #ffffff;
+  --good: #0f9d6b; --bad: #e5484d; --warn: #c97a00; --bad-soft: #fdecec; --good-soft: #e3f6ee;
+  --chart-2: #f59f4c; --chart-muted: #c9d1df;
+  --shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 4px 14px rgb(16 24 40 / 0.05);
+  --f-display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --f-body: "Schibsted Grotesk", "Helvetica Neue", system-ui, sans-serif;
+  --f-num: "Schibsted Grotesk", "Helvetica Neue", system-ui, sans-serif;
+  --r: 18px; --r-sm: 11px;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+  --t-cap: 0.78rem; --t-body: 0.95rem; --t-h: 1.1rem; --t-big: 2.2rem;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--fg); }
+body { font-family: var(--f-body); font-size: var(--t-body); line-height: 1.45; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.wrap { max-width: 720px; margin-inline: auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 calc(96px + env(safe-area-inset-bottom, 0px)); }
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding-block: var(--s3); }
+.brand { font-family: var(--f-display); font-weight: 700; font-size: 1.15rem; letter-spacing: -0.01em; }
+.brand small { display: block; font-family: var(--f-body); font-weight: 400; font-size: var(--t-cap); color: var(--muted); letter-spacing: 0; }
+select, input, button, textarea { font: inherit; color: inherit; }
+.month-pick { background: var(--surface); box-shadow: var(--shadow); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; font-weight: 500; }
+main { display: flex; flex-direction: column; gap: var(--s4); }
+section[data-view] { display: flex; flex-direction: column; gap: var(--s4); }
+h2 { font-family: var(--f-display); font-weight: 500; font-size: var(--t-h); margin: 0; text-wrap: balance; }
+h3 { font-size: var(--t-cap); text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; margin: 0; }
+p { margin: 0; }
+.muted { color: var(--muted); } .cap { font-size: var(--t-cap); }
+.card { background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: var(--r); padding: var(--s4); display: flex; flex-direction: column; gap: var(--s3); min-width: 0; }
+.hero { padding-block: var(--s2) var(--s1); display: flex; flex-direction: column; gap: var(--s1); }
+.hero.feature { background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%); color: var(--on-accent); border-radius: var(--r); padding: var(--s5) var(--s4); box-shadow: 0 8px 24px rgb(48 86 232 / 0.25); }
+.hero.feature h3, .hero.feature .muted { color: rgb(255 255 255 / 0.78); }
+.hero.feature .pos { color: #c6f6df; } .hero.feature .neg { color: #ffd2d3; }
+.hero .big { font-family: var(--f-display); font-weight: 700; font-size: clamp(2rem, 9vw, 2.8rem); letter-spacing: -0.02em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.num { font-family: var(--f-num); font-variant-numeric: tabular-nums; font-weight: 500; }
+.pos { color: var(--good); } .neg { color: var(--bad); } .wrn { color: var(--warn); }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s3); }
+.stat { background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: var(--r); padding: var(--s3) var(--s4); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stat .v { font-family: var(--f-display); font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat .l { font-size: var(--t-cap); color: var(--muted); }
+.stat .d { font-size: var(--t-cap); }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-cap); border-radius: 999px; padding: 2px 10px; background: var(--surface-2); color: var(--muted); white-space: nowrap; }
+.pill.ok { background: var(--good-soft); color: var(--good); } .pill.bad { background: var(--bad-soft); color: var(--bad); }
+.row { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-width: 0; }
+.row > :first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.list { display: flex; flex-direction: column; }
+.list > .row { padding-block: 10px; border-top: 1px solid var(--line); }
+.list > .row:first-child { border-top: 0; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 9px 16px; font-weight: 500; cursor: pointer; }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.btn.small { padding: 5px 12px; font-size: var(--t-cap); }
+.btn:focus-visible, select:focus-visible, input:focus-visible, .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btns { display: flex; gap: var(--s2); flex-wrap: wrap; }
+.field { display: grid; grid-template-columns: minmax(0, 1fr) 9.5rem; align-items: center; gap: var(--s3); padding-block: 8px; border-top: 1px solid var(--line); }
+.field:first-of-type { border-top: 0; }
+.field label { min-width: 0; }
+.field label small { display: block; color: var(--muted); font-size: var(--t-cap); }
+.money { position: relative; }
+.money::before { content: "$"; position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-family: var(--f-num); font-size: 0.9rem; }
+.money input, input.plain { width: 100%; background: var(--surface-2); border: 1px solid transparent; border-radius: var(--r-sm); padding: 9px 10px 9px 22px; font-family: var(--f-num); text-align: right; font-size: 0.95rem; }
+input.plain { padding-left: 10px; text-align: left; font-family: var(--f-body); }
+textarea { width: 100%; min-height: 72px; background: var(--surface-2); border: 1px solid transparent; border-radius: var(--r-sm); padding: 10px; resize: vertical; }
+.money input:focus, input.plain:focus, textarea:focus { border-color: var(--accent); outline: none; background: var(--surface); }
+.bar { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; position: relative; }
+.bar > i { position: absolute; inset: 0 auto 0 0; border-radius: 99px; background: var(--accent); }
+.bar > i.over { background: var(--bad); }
+.bar > i.lumpy { background: var(--chart-muted); }
+.catrow { display: flex; flex-direction: column; gap: 6px; padding-block: 10px; border-top: 1px solid var(--line); }
+.catrow:first-child { border-top: 0; }
+.chart { width: 100%; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { fill: var(--muted); font-family: var(--f-num); font-size: 10px; }
+.filebtn { position: relative; overflow: hidden; display: inline-flex; align-items: center; justify-content: center; }
+.filebtn input[type=file] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 100px; }
+.drop { border: 1.5px dashed var(--line); border-radius: var(--r); padding: var(--s5) var(--s4); text-align: center; display: flex; flex-direction: column; gap: var(--s2); align-items: center; cursor: pointer; background: var(--surface); }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.txtools { display: flex; gap: var(--s2); align-items: center; }
+.txtools input { flex: 1; min-width: 0; }
+.catrow.tap { cursor: pointer; border-radius: var(--r-sm); }
+.catrow.tap:hover .row span:first-child, .catrow.tap:focus-visible .row span:first-child { color: var(--accent); }
+.catrow.tap:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.catrow.sel .row span:first-child { color: var(--accent); font-weight: 600; }
+.chip { display: inline-flex; align-items: center; gap: 6px; background: var(--accent-soft); color: var(--accent); border: 0; border-radius: 999px; padding: 5px 12px; font-size: var(--t-cap); font-weight: 600; cursor: pointer; }
+.tx { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px var(--s3); padding-block: 10px; border-top: 1px solid var(--line); }
+.tx:first-child { border-top: 0; }
+.tx .desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tx .meta { grid-column: 1 / -1; font-size: var(--t-cap); color: var(--muted); display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; }
+.tx select { background: var(--surface-2); border: 0; border-radius: 999px; padding: 2px 8px; font-size: var(--t-cap); max-width: 11rem; }
+.tx.excluded .desc, .tx.excluded .num { color: var(--muted); }
+.seg { display: flex; background: var(--surface-2); border-radius: 999px; padding: 3px; gap: 2px; overflow-x: auto; }
+.seg button { border: 0; background: transparent; border-radius: 999px; padding: 6px 12px; font-size: var(--t-cap); font-weight: 500; color: var(--muted); white-space: nowrap; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 1px 3px rgb(16 24 40 / 0.12); }
+.tabs { position: fixed; inset: auto 0 0 0; z-index: 20; background: rgb(255 255 255 / 0.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); }
+.tabs .in { max-width: 720px; margin-inline: auto; display: grid; grid-template-columns: repeat(6, 1fr); }
+.alloc { display: flex; height: 12px; border-radius: 99px; overflow: hidden; gap: 2px; }
+.alloc i { display: block; height: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); font-size: var(--t-cap); color: var(--muted); }
+.legend span::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 6px; background: var(--c); }
+.hold { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px var(--s3); padding-block: 12px; border-top: 1px solid var(--line); cursor: pointer; }
+.hold:first-child { border-top: 0; }
+.hold .tk { font-weight: 600; } .hold .nm { font-size: var(--t-cap); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hold .r { text-align: right; }
+.hold .mid { display: flex; align-items: center; gap: var(--s3); min-width: 0; }
+.spark { flex: 0 0 auto; width: 64px; height: 26px; display: block; }
+.lots { width: 100%; border-collapse: collapse; font-size: var(--t-cap); }
+.lots th, .lots td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+.lots th:first-child, .lots td:first-child { text-align: left; }
+.lots th { color: var(--muted); font-weight: 500; }
+.tab { border: 0; background: none; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 2px 10px; font-size: 0.7rem; color: var(--muted); cursor: pointer; }
+.tab svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.tab[aria-current="page"] { color: var(--accent); font-weight: 600; }
+.tab[aria-current="page"] svg { stroke-width: 2.2; }
+.sheet-bg { position: fixed; inset: 0; background: rgb(0 0 0 / 0.4); z-index: 30; display: flex; align-items: flex-end; justify-content: center; }
+.sheet { background: var(--bg); width: 100%; max-width: 720px; max-height: 88%; overflow: auto; border-radius: 18px 18px 0 0; padding: var(--s4) max(16px, env(safe-area-inset-right, 0px)) calc(var(--s5) + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); display: flex; flex-direction: column; gap: var(--s3); }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(80px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: #ffffff; padding: 10px 16px; border-radius: 999px; z-index: 40; font-size: var(--t-cap); }
+.banner { background: var(--bad-soft); color: var(--bad); border-radius: var(--r); padding: var(--s3) var(--s4); font-size: var(--t-cap); }
+.note { background: var(--accent-soft); border-radius: var(--r); padding: var(--s3) var(--s4); font-size: var(--t-cap); }
+.empty { text-align: center; padding: var(--s5) var(--s4); color: var(--muted); display: flex; flex-direction: column; gap: var(--s3); align-items: center; }
+details > summary { cursor: pointer; font-weight: 500; }
+@media (min-width: 560px) { .grid2.wide { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (prefers-reduced-motion: no-preference) { .bar > i { transition: width 400ms ease-out; } }
+</style>
+
+<header class="wrap top" id="top">
+  <div class="brand"><span id="topTitle">Home</span><small id="saveState">Loading…</small></div>
+  <select class="month-pick" id="monthPick" aria-label="Month"></select>
+</header>
+
+<main class="wrap" id="app">
+  <div class="note">Demo with made-up numbers. Explore freely, nothing you change is saved.</div>
+  <div class="banner" id="noDb" hidden>Saving isn't available in this view. Open the page from your claude.ai account to keep changes.</div>
+
+  <!-- HOME -->
+  <section data-view="home" id="v-home">
+    <div class="hero feature">
+      <h3>Net worth, your share</h3>
+      <div class="big" id="h-nw">—</div>
+      <div class="cap" id="h-nwd">&nbsp;</div>
+    </div>
+    <div class="grid2 wide" id="h-stats"></div>
+    <div class="card">
+      <div class="row"><h2>Net worth</h2><span class="pill" id="h-range">by month</span></div>
+      <div class="chart" id="h-nwchart"></div>
+    </div>
+    <div class="card">
+      <div class="row"><h2>Monthly cash flow</h2><span class="cap muted">after one-offs</span></div>
+      <div class="chart" id="h-cfchart"></div>
+      <p class="cap muted">Pay and money in, minus rent, car loan, your half of the mortgage, child support and your own spending.</p>
+    </div>
+    <div class="card" id="h-todo"></div>
+  </section>
+
+  <!-- CHECK-IN -->
+  <section data-view="checkin" id="v-checkin" hidden>
+    <div class="hero"><h3>Monthly check-in</h3><div class="big" style="font-size:1.6rem" id="c-title">—</div><p class="cap muted">Key in month-end balances and the month's money in and out, or fill them from your NAB files below.</p></div>
+    <div class="card">
+      <h2>Fill in from NAB</h2>
+      <p class="cap muted">The Accounts list PDF from NAB internet banking fills every balance, loans included. Transaction CSVs fill spending, pay, rent and the mortgage.</p>
+      <div class="btns"><span class="btn small primary filebtn">Upload account list PDF<input type="file" id="pdfIn" accept="application/pdf,.pdf" aria-label="Upload account list PDF"></span><span class="btn small filebtn">Import transaction CSVs<input type="file" id="csvIn2" class="csv-in" accept=".csv,text/csv" multiple aria-label="Import transaction CSVs"></span></div>
+    </div>
+    <div class="card"><h2>Balances at month end</h2><div id="c-bal"></div><button class="btn small" id="c-addacct" type="button">Add an account or loan</button></div>
+    <div class="card"><h2>Money in and out</h2><div id="c-flow"></div></div>
+    <div class="card"><h2>Notes</h2><textarea id="c-notes" aria-label="Notes for this month" placeholder="Bonus, big purchases, anything unusual"></textarea></div>
+    <div class="card" id="c-result"></div>
+    <div class="btns"><button class="btn primary" id="c-save" type="button">Save month</button><button class="btn" id="c-reset" type="button">Undo changes</button></div>
+  </section>
+
+  <!-- SPENDING -->
+  <section data-view="spend" id="v-spend" hidden>
+    <div class="drop" id="dropzone">
+      <strong>Import NAB transactions</strong>
+      <span class="cap muted">Choose one or more CSV exports: credit card, everyday and offset. Duplicates are skipped.</span>
+      <span class="btn small primary filebtn">Choose CSV files<input type="file" id="csvIn" class="csv-in" accept=".csv,text/csv" multiple aria-label="Choose CSV files"></span>
+    </div>
+    <div class="card" id="s-summary"></div>
+    <div class="card"><div class="row"><h2>By category</h2><span class="cap muted" id="s-total"></span></div><p class="cap muted">Tap a category to see its transactions.</p><div id="s-cats"></div></div>
+    <div class="card" id="s-subs"></div>
+    <div class="card" id="s-txcard">
+      <div class="row"><h2>Transactions</h2><span class="cap muted" id="s-count"></span></div>
+      <div class="seg" id="s-filter" role="group" aria-label="Show"></div>
+      <div class="txtools"><input id="s-search" class="plain" type="search" placeholder="Search merchant or description" aria-label="Search transactions" autocomplete="off"><button class="btn small" id="s-sort" type="button">Newest first</button></div>
+      <div id="s-active"></div>
+      <div id="s-tx"></div>
+    </div>
+  </section>
+
+  <!-- BUDGET -->
+  <section data-view="budget" id="v-budget" hidden>
+    <div class="card" id="b-top"></div>
+    <div class="card"><div class="row"><h2>Spending targets</h2><button class="btn small" id="b-edit" type="button">Edit targets</button></div><div id="b-cats"></div></div>
+    <div class="card"><div class="row"><h2>Yearly bills</h2><button class="btn small" id="b-sinkedit" type="button">Edit</button></div><p class="cap muted">Put this aside each month so rego, insurance and rates never land on the card in one hit.</p><div id="b-sink"></div></div>
+    <div class="card"><div class="row"><h2>Fixed costs</h2><button class="btn small" id="b-fixedit" type="button">Edit</button></div><div id="b-fixed"></div></div>
+  </section>
+
+  <!-- INVEST -->
+  <section data-view="invest" id="v-invest" hidden>
+    <div class="hero feature" id="i-hero"><h3>Shares, ETFs and crypto</h3><div class="big" id="i-total">—</div><div class="cap" id="i-gain">&nbsp;</div></div>
+    <div class="btns"><button class="btn primary" id="i-refresh" type="button">Refresh prices</button><button class="btn" id="i-prices" type="button">Edit prices</button><button class="btn" id="i-add" type="button">Add holding</button></div>
+    <p class="cap muted" id="i-live" role="status">Prices come live from your Google Sheet.</p>
+    <div class="card" id="i-alloc"></div>
+    <div class="card" id="i-list"></div>
+    <div class="card" id="i-divs"></div>
+  </section>
+
+  <!-- WEALTH -->
+  <section data-view="wealth" id="v-wealth" hidden>
+    <div class="card" id="w-mix"></div>
+    <div class="card" id="w-property"></div>
+    <div class="card"><div class="row"><h2>Accounts and loans</h2><button class="btn small" id="w-add" type="button">Add</button></div><div id="w-list"></div></div>
+    <div class="card" id="w-scen"></div>
+    <div class="card"><div class="row"><h2>Cash goal</h2><button class="btn small" id="w-goaledit" type="button">Edit</button></div><div id="w-goal"></div></div>
+    <div class="card"><h2>Month by month</h2><div style="overflow-x:auto"><table id="w-hist" style="border-collapse:collapse;width:100%;font-size:var(--t-cap)"></table></div></div>
+  </section>
+</main>
+
+<nav class="tabs" aria-label="Sections"><div class="in" id="tabs">
+  <button class="tab" data-tab="home" type="button"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
+  <button class="tab" data-tab="checkin" type="button"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>Check-in</button>
+  <button class="tab" data-tab="spend" type="button"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>Spending</button>
+  <button class="tab" data-tab="budget" type="button"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v8l6 4"/></svg>Budget</button>
+  <button class="tab" data-tab="invest" type="button"><svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>Invest</button>
+  <button class="tab" data-tab="wealth" type="button"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Wealth</button>
+</div></nav>
+
+<script>
+(() => {
+'use strict';
+const DEMO = {"config": {"mortgageShare": 0.5, "childSupport": 0, "everydayTarget": 4200, "fixed": {"rent": 0, "carLoan": 720}, "targets": {"Groceries": 950, "Eating out": 400, "Cafes": 120, "Fuel": 320, "Transport": 80, "Bills": 380, "Insurance": 180, "Health": 120, "Personal care": 80, "Shopping": 400, "Clothing": 150, "Home & furniture": 150, "Entertainment": 90, "Subscriptions": 75, "Services": 60, "Pets": 120, "Gifts": 80, "Other": 80}, "sinking": [{"name": "Car rego", "yearly": 900}, {"name": "Car insurance", "yearly": 1100}, {"name": "Council rates, your half", "yearly": 1050}], "rules": [], "partnerCards": ["3333"], "partnerNames": ["ALEX P"], "rentPayees": [], "goal": {"cash": 40000}, "scenario": {"sellCostPct": 2.5, "breakCost": 0, "leaseRentWeek": 620, "leaseCostPct": 15}}, "accounts": [{"id": "everyday", "name": "Everyday account", "type": "cash", "ownerPct": 100, "match": "1111", "order": 0}, {"id": "offset", "name": "Offset (joint)", "type": "offset", "ownerPct": 50, "match": "4444", "order": 1}, {"id": "card", "name": "Credit card", "type": "card", "ownerPct": 100, "match": "2222", "order": 2}, {"id": "super", "name": "Super", "type": "super", "ownerPct": 100, "order": 3}, {"id": "invest", "name": "Shares, ETFs and crypto", "type": "invest", "ownerPct": 100, "order": 4, "note": "Value comes from the Invest tab"}, {"id": "house", "name": "Home", "type": "property", "ownerPct": 50, "order": 5}, {"id": "mort", "name": "Home loan", "type": "mortgage", "ownerPct": 50, "rate": 5.89, "repayment": 4200, "match": "5555", "order": 6}, {"id": "car", "name": "Toyota RAV4 (2022)", "type": "vehicle", "ownerPct": 100, "order": 7}, {"id": "carloan", "name": "Car loan", "type": "loan", "ownerPct": 100, "rate": 7.2, "repayment": 720, "match": "6666", "order": 8}], "months": {"2026-06": {"income": 9640, "otherIn": 240, "rent": 0, "carLoan": 720, "mortgagePaid": 4200, "shonnyMortgage": 2100, "shonnyCard": 523.38, "shonnyOnCard": 0, "spend": {"Groceries": 1008.07, "Eating out": 339.17, "Cafes": 118.58, "Fuel": 192.07, "Transport": 47.81, "Bills": 271.61, "Insurance": 196.98, "Health": 107.05, "Personal care": 64.11, "Shopping": 407.38, "Clothing": 41.06, "Home & furniture": 177.83, "Entertainment": 67.07, "Subscriptions": 75.72, "Services": 58.21, "Pets": 150.01, "Gifts": 27.2, "Other": 106.73}, "lumpy": 0, "balances": {"everyday": 1006.26, "offset": 20450.87, "card": -2860.0, "super": 116382, "invest": 41995.63, "house": 980000, "mort": -712400, "car": 32000, "carloan": -21400}, "notes": "", "txCount": 0, "source": "demo"}, "2026-07": {"income": 9640, "otherIn": 240, "rent": 0, "carLoan": 720, "mortgagePaid": 4200, "shonnyMortgage": 2100, "shonnyCard": 400.04, "shonnyOnCard": 0, "spend": {"Groceries": 1253.63, "Eating out": 244.84, "Cafes": 119.58, "Fuel": 378.01, "Transport": 96.37, "Bills": 312.4, "Insurance": 149.43, "Health": 113.68, "Personal care": 95.0, "Shopping": 242.0, "Clothing": 28.12, "Home & furniture": 49.84, "Entertainment": 102.14, "Subscriptions": 59.83, "Services": 60.74, "Pets": 131.4, "Gifts": 72.52, "Other": 100.77}, "lumpy": 0, "balances": {"everyday": 1212.3, "offset": 22214.39, "card": -2297.65, "super": 118083, "invest": 41168.23, "house": 980000, "mort": -711320, "car": 31700, "carloan": -20840}, "notes": "", "txCount": 0, "source": "demo"}, "2026-08": {"income": 9640, "otherIn": 120, "rent": 0, "carLoan": 720, "mortgagePaid": 4200, "shonnyMortgage": 2100, "shonnyCard": 587.34, "shonnyOnCard": 0, "spend": {"Groceries": 1106.36, "Eating out": 261.39, "Cafes": 89.77, "Fuel": 276.08, "Transport": 99.77, "Bills": 233.5, "Insurance": 163.68, "Health": 118.75, "Personal care": 100.54, "Shopping": 482.17, "Clothing": 55.85, "Home & furniture": 39.7, "Entertainment": 113.16, "Subscriptions": 98.71, "Services": 40.24, "Pets": 82.92, "Gifts": 17.66, "Other": 75.04, "Rego": 900}, "lumpy": 900, "balances": {"everyday": 1430.21, "offset": 23257.65, "card": -1805.73, "super": 119003, "invest": 43528.49, "house": 980000, "mort": -710240, "car": 31400, "carloan": -20280}, "notes": "Car rego paid.", "txCount": 0, "source": "demo"}, "2026-09": {"income": 14460, "otherIn": 0, "rent": 0, "carLoan": 720, "mortgagePaid": 4200, "shonnyMortgage": 2100, "shonnyCard": 677.27, "shonnyOnCard": 0, "spend": {"Groceries": 764.64, "Eating out": 260.16, "Cafes": 148.48, "Fuel": 419.26, "Transport": 85.92, "Bills": 433.89, "Insurance": 1264.76, "Health": 149.61, "Personal care": 104.92, "Shopping": 437.78, "Clothing": 44.88, "Home & furniture": 129.79, "Entertainment": 78.33, "Subscriptions": 52.69, "Services": 80.26, "Pets": 108.3, "Gifts": 51.04, "Other": 50.55}, "lumpy": 1100, "balances": {"everyday": 1410.11, "offset": 24871.97, "card": -3128.53, "super": 120386, "invest": 42234.11, "house": 980000, "mort": -709160, "car": 31100, "carloan": -19720}, "notes": "Car insurance renewed. Three pays this month.", "txCount": 0, "source": "demo"}, "2026-10": {"income": 9640, "otherIn": 120, "rent": 0, "carLoan": 720, "mortgagePaid": 4200, "shonnyMortgage": 2100, "shonnyCard": 677.78, "shonnyOnCard": 0, "spend": {"Groceries": 989.2, "Eating out": 267.53, "Cafes": 90.22, "Fuel": 264.93, "Transport": 67.31, "Bills": 246.34, "Insurance": 221.25, "Health": 161.34, "Personal care": 73.82, "Shopping": 374.83, "Clothing": 27.84, "Home & furniture": 37.09, "Entertainment": 109.18, "Subscriptions": 50.94, "Services": 34.11, "Pets": 157.29, "Gifts": 23.34, "Other": 78.76, "Council rates": 525.0}, "lumpy": 525, "balances": {"everyday": 924.34, "offset": 26316.87, "card": -3169.9, "super": 121836, "invest": 42596.67, "house": 1000000, "mort": -708080, "car": 30800, "carloan": -19160}, "notes": "Council rates instalment.", "txCount": 58, "source": "demo"}, "2026-11": {"income": 4820, "otherIn": 120, "rent": 0, "carLoan": 0, "mortgagePaid": 0, "shonnyMortgage": 0, "shonnyCard": 407.38, "shonnyOnCard": 0, "spend": {"Groceries": 424.47, "Eating out": 116.84, "Cafes": 30.59, "Fuel": 110.12, "Transport": 26.66, "Bills": 140.87, "Insurance": 65.56, "Health": 49.59, "Personal care": 32.39, "Shopping": 98.86, "Clothing": 38.93, "Home & furniture": 18.78, "Entertainment": 29.74, "Subscriptions": 29.79, "Services": 28.17, "Pets": 49.65, "Gifts": 7.79, "Other": 28.96}, "lumpy": 0, "balances": {"everyday": 1209.85, "offset": 27935.14, "card": -2812.38, "super": 122369, "invest": 43611.0, "house": 1000000, "mort": -707000, "car": 30500, "carloan": -18600}, "notes": "Month to date.", "txCount": 0, "source": "demo"}}, "tx": {"2026-10": [{"date": "2026-10-31", "amt": -69.8, "desc": "PETBARN MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Pets"}, {"date": "2026-10-31", "amt": -104.51, "desc": "MYER MELBOURNE", "merchant": "", "acct": "3333", "bal": null, "cat": "Partner's card"}, {"date": "2026-10-31", "amt": -73.47, "desc": "COLES MELBOURNE", "merchant": "", "acct": "3333", "bal": null, "cat": "Partner's card"}, {"date": "2026-10-30", "amt": -33.8, "desc": "ALDI STORES MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Groceries"}, {"date": "2026-10-30", "amt": -159.68, "desc": "HARRIS FARM MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Groceries"}, {"date": "2026-10-30", "amt": -87.49, "desc": "PETBARN MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Pets"}, {"date": "2026-10-29", "amt": -70.66, "desc": "PET INSURANCE MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Insurance"}, {"date": "2026-10-29", "amt": -21.97, "desc": "AMAZON AU MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Shopping"}, {"date": "2026-10-27", "amt": -111.73, "desc": "COLES MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Groceries"}, {"date": "2026-10-26", "amt": -155.52, "desc": "COLES MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Groceries"}, {"date": "2026-10-26", "amt": -325.95, "desc": "WOOLWORTHS MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Groceries"}, {"date": "2026-10-26", "amt": -94.82, "desc": "7-ELEVEN MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Fuel"}, {"date": "2026-10-26", "amt": -23.25, "desc": "AMAZON AU MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Shopping"}, {"date": "2026-10-26", "amt": -30.29, "desc": "KMART MELBOURNE", "merchant": "", "acct": "3333", "bal": null, "cat": "Partner's card"}, {"date": "2026-10-25", "amt": -73.82, "desc": "HAIR STUDIO MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Personal care"}, {"date": "2026-10-25", "amt": -37.09, "desc": "BUNNINGS MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Home & furniture"}, {"date": "2026-10-24", "amt": -10.46, "desc": "GRILL'D MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Eating out"}, {"date": "2026-10-24", "amt": -114.13, "desc": "GUZMAN Y GOMEZ MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Eating out"}, {"date": "2026-10-23", "amt": -68.94, "desc": "GRILL'D MELBOURNE", "merchant": "", "acct": "3333", "bal": null, "cat": "Partner's card"}, {"date": "2026-10-22", "amt": -108.28, "desc": "PET INSURANCE MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Insurance"}, {"date": "2026-10-22", "amt": -120.43, "desc": "OFFICEWORKS MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Shopping"}, {"date": "2026-10-22", "amt": -119.06, "desc": "KMART MELBOURNE", "merchant": "", "acct": "3333", "bal": null, "cat": "Partner's card"}, {"date": "2026-10-20", "amt": -109.18, "desc": "HOYTS MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Entertainment"}, {"date": "2026-10-20", "amt": -2500, "desc": "Linked Acc Trns card payment", "merchant": "", "acct": "1111", "bal": null, "cat": "Transfer"}, {"date": "2026-10-18", "amt": -60.27, "desc": "AMPOL MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Fuel"}, {"date": "2026-10-17", "amt": -67.31, "desc": "LINKT TOLLS MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Transport"}, {"date": "2026-10-17", "amt": -83.08, "desc": "CHEMIST WAREHOUSE MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Health"}, {"date": "2026-10-17", "amt": -27.84, "desc": "COTTON ON MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Clothing"}, {"date": "2026-10-16", "amt": -201.89, "desc": "WOOLWORTHS MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Groceries"}, {"date": "2026-10-16", "amt": -34.11, "desc": "DRY CLEANER MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Services"}, {"date": "2026-10-16", "amt": 4820, "desc": "SALARY ACME PTY LTD", "merchant": "", "acct": "1111", "bal": null, "cat": "Income"}, {"date": "2026-10-15", "amt": -90.22, "desc": "LOCAL CAFE MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Cafes"}, {"date": "2026-10-15", "amt": -50.94, "desc": "APPLE.COM/BILL MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Subscriptions"}, {"date": "2026-10-15", "amt": -78.76, "desc": "AUSTRALIA POST MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Other"}, {"date": "2026-10-14", "amt": -0.63, "desc": "ALDI STORES MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Groceries"}, {"date": "2026-10-13", "amt": -125.62, "desc": "KMART MELBOURNE", "merchant": "", "acct": "3333", "bal": null, "cat": "Partner's card"}, {"date": "2026-10-11", "amt": -67.66, "desc": "MYER MELBOURNE", "merchant": "", "acct": "3333", "bal": null, "cat": "Partner's card"}, {"date": "2026-10-10", "amt": -70.06, "desc": "AUSSIE BROADBAND MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Bills"}, {"date": "2026-10-09", "amt": -34.86, "desc": "TELSTRA MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Bills"}, {"date": "2026-10-09", "amt": -18.67, "desc": "AMAZON AU MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Shopping"}, {"date": "2026-10-08", "amt": -66.39, "desc": "AUSSIE BROADBAND MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Bills"}, {"date": "2026-10-08", "amt": -96.07, "desc": "KMART MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Shopping"}, {"date": "2026-10-08", "amt": -525.0, "desc": "CITY COUNCIL RATES MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Council rates", "lumpy": true}, {"date": "2026-10-07", "amt": -75.03, "desc": "TELSTRA MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Bills"}, {"date": "2026-10-06", "amt": -87.07, "desc": "GUZMAN Y GOMEZ MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Eating out"}, {"date": "2026-10-05", "amt": -61.86, "desc": "7-ELEVEN MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Fuel"}, {"date": "2026-10-05", "amt": -78.26, "desc": "CHEMIST WAREHOUSE MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Health"}, {"date": "2026-10-05", "amt": -23.34, "desc": "MYER MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Gifts"}, {"date": "2026-10-05", "amt": -720, "desc": "CAR LOAN REPAYMENT", "merchant": "", "acct": "1111", "bal": null, "cat": "Car loan"}, {"date": "2026-10-05", "amt": -46.64, "desc": "KMART MELBOURNE", "merchant": "", "acct": "3333", "bal": null, "cat": "Partner's card"}, {"date": "2026-10-03", "amt": 2100, "desc": "ALEX P mortgage", "merchant": "", "acct": "1111", "bal": null, "cat": "Partner mortgage share"}, {"date": "2026-10-03", "amt": -41.59, "desc": "MYER MELBOURNE", "merchant": "", "acct": "3333", "bal": null, "cat": "Partner's card"}, {"date": "2026-10-02", "amt": -42.31, "desc": "PET INSURANCE MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Insurance"}, {"date": "2026-10-02", "amt": -94.44, "desc": "JB HI-FI MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Shopping"}, {"date": "2026-10-02", "amt": 4820, "desc": "SALARY ACME PTY LTD", "merchant": "", "acct": "1111", "bal": null, "cat": "Income"}, {"date": "2026-10-01", "amt": -55.87, "desc": "GUZMAN Y GOMEZ MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Eating out"}, {"date": "2026-10-01", "amt": -47.98, "desc": "AMPOL MELBOURNE", "merchant": "", "acct": "2222", "bal": null, "cat": "Fuel"}, {"date": "2026-10-01", "amt": -4200, "desc": "HOME LOAN REPAYMENT", "merchant": "", "acct": "1111", "bal": null, "cat": "Mortgage"}]}, "holdings": [{"id": "vas", "ticker": "VAS", "name": "Vanguard Australian Shares ETF", "kind": "etf", "target": 40, "divs": 310, "lots": [{"date": "2022-03-14", "units": 25, "price": 92.1, "fee": 9.5}, {"date": "2023-09-04", "units": 15, "price": 95.4, "fee": 9.5}], "price": 112.3, "priceAt": "2026-11-09", "history": [{"d": "2026-06-28", "p": 102.53}, {"d": "2026-07-28", "p": 102.71}, {"d": "2026-08-28", "p": 108.62}, {"d": "2026-09-28", "p": 105.25}, {"d": "2026-10-28", "p": 110.96}]}, {"id": "vgs", "ticker": "VGS", "name": "Vanguard International Shares ETF", "kind": "etf", "target": 40, "divs": 145, "lots": [{"date": "2022-08-22", "units": 30, "price": 104.8, "fee": 9.5}], "price": 152.6, "priceAt": "2026-11-09", "history": [{"d": "2026-06-28", "p": 139.48}, {"d": "2026-07-28", "p": 138.25}, {"d": "2026-08-28", "p": 145.73}, {"d": "2026-09-28", "p": 142.49}, {"d": "2026-10-28", "p": 149.48}]}, {"id": "ndq", "ticker": "NDQ", "name": "Betashares Nasdaq 100 ETF", "kind": "etf", "target": 20, "divs": 40, "lots": [{"date": "2023-02-10", "units": 40, "price": 31.2, "fee": 9.5}], "price": 52.4, "priceAt": "2026-11-09", "history": [{"d": "2026-06-28", "p": 45.38}, {"d": "2026-07-28", "p": 46.51}, {"d": "2026-08-28", "p": 48.86}, {"d": "2026-09-28", "p": 51.55}, {"d": "2026-10-28", "p": 49.78}]}, {"id": "cba", "ticker": "CBA", "name": "Commonwealth Bank", "kind": "stock", "divs": 1240, "drp": true, "lots": [{"date": "2021-05-18", "units": 40, "price": 98.5, "fee": 19.95}, {"date": "2023-03-20", "units": 10, "price": 101.2, "fee": 19.95}], "price": 166.8, "priceAt": "2026-11-09", "history": [{"d": "2026-06-28", "p": 154.5}, {"d": "2026-07-28", "p": 161.39}, {"d": "2026-08-28", "p": 167.31}, {"d": "2026-09-28", "p": 164.29}, {"d": "2026-10-28", "p": 163.68}]}, {"id": "btc", "ticker": "BTC", "name": "Bitcoin", "kind": "crypto", "target": 70, "divs": 0, "lots": [{"date": "2021-11-02", "units": 0.08, "price": 82000, "fee": 0}, {"date": "2024-01-15", "units": 0.04, "price": 64000, "fee": 0}], "price": 161500, "priceAt": "2026-11-09", "history": [{"d": "2026-06-28", "p": 157791.26}, {"d": "2026-07-28", "p": 148317.53}, {"d": "2026-08-28", "p": 160267.95}, {"d": "2026-09-28", "p": 155045.71}, {"d": "2026-10-28", "p": 155057.85}]}, {"id": "eth", "ticker": "ETH", "name": "Ethereum", "kind": "crypto", "target": 30, "divs": 0, "lots": [{"date": "2022-06-20", "units": 1.5, "price": 1650, "fee": 0}], "price": 3150, "priceAt": "2026-11-09", "history": [{"d": "2026-06-28", "p": 3489.92}, {"d": "2026-07-28", "p": 3456.22}, {"d": "2026-08-28", "p": 3506.49}, {"d": "2026-09-28", "p": 3244.95}, {"d": "2026-10-28", "p": 3261.15}]}]};
+// ---------- constants ----------
+const SPEND_CATS = ['Groceries','Eating out','Cafes','Fuel','Transport','Bills','Insurance','Health','Personal care','Shopping','Clothing','Home & furniture','Entertainment','Subscriptions','Services','Pets','Gifts','Rego','Council rates','Interest & fees','Other'];
+const FLOW_CATS = ['Income','Money in','Rent','Mortgage','Car loan','Child support','Partner mortgage share','Partner other','Transfer',"Partner's card"];
+const ALL_CATS = [...SPEND_CATS, ...FLOW_CATS];
+const LUMPY_CATS = new Set(['Rego','Council rates']);
+const NAB_MAP = { 'Restaurants & takeaway':'Eating out','Cafe & coffee':'Cafes','Groceries':'Groceries','Fuel':'Fuel','Parking & tolls':'Transport','Travel expenses':'Transport','Vehicle expenses':'Transport','Phone & internet':'Bills','Utilities':'Bills','Insurance':'Insurance','Medical':'Health','Other shopping':'Shopping','Clothing & accessories':'Clothing','Homeware':'Home & furniture','Home improvements':'Home & furniture','Media':'Entertainment','Hobbies':'Entertainment','Subscriptions':'Subscriptions','Electronics & technology':'Subscriptions','Services':'Services','Pets':'Pets','Fees':'Interest & fees','Loans':'Interest & fees','Government':'Other','Gifts & donations':'Gifts' };
+const TYPES = { cash:'Cash account', offset:'Offset account', card:'Credit card', super:'Super', invest:'Investments', property:'Property', vehicle:'Vehicle', other:'Other asset', mortgage:'Mortgage', loan:'Loan' };
+const LIAB = new Set(['card','mortgage','loan']);
+const LIQUID = new Set(['cash','offset','card']);
+
+// ---------- state ----------
+const S = { db: null, config: null, accounts: [], months: {}, tx: {}, view: 'home', month: null, draft: null, holdings: [], filter: 'spend', catFilter: null, search: '', sort: 'date', ready: { config:false, accounts:false, months:false } };
+
+// ---------- helpers ----------
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const el = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) { if (v == null || v === false) continue; if (k === 'class') e.className = v; else if (k === 'text') e.textContent = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v === true ? '' : v); } for (const k of kids.flat()) if (k != null) e.append(k.nodeType ? k : document.createTextNode(String(k))); return e; };
+const n = (v) => { const x = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(/[$,\s]/g, '')); return Number.isFinite(x) ? x : 0; };
+const has = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
+const fmt0 = new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 0 });
+const fmt2 = new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtK = new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', notation: 'compact', maximumFractionDigits: 1 });
+const $0 = (v) => fmt0.format(Math.round(v)).replace('-', '−');
+const $2 = (v) => fmt2.format(v).replace('-', '−');
+const $k = (v) => fmtK.format(v).replace('-', '−');
+const sgn = (v, f = $0) => (v > 0 ? '+' : '') + f(v);
+const pct = (v) => (v * 100).toFixed(0) + '%';
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const mLabel = (m, long) => { const [y, mo] = m.split('-').map(Number); return long ? new Date(Date.UTC(y, mo - 1, 1)).toLocaleString('en-AU', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : MONTHS[mo - 1] + ' ' + String(y).slice(2); };
+const mAdd = (m, k) => { let [y, mo] = m.split('-').map(Number); mo += k; while (mo < 1) { mo += 12; y--; } while (mo > 12) { mo -= 12; y++; } return y + '-' + String(mo).padStart(2, '0'); };
+const thisMonth = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
+const clone = (o) => JSON.parse(JSON.stringify(o ?? null));
+let toastT; const toast = (msg) => { $$('.toast').forEach((t) => t.remove()); const t = el('div', { class: 'toast', role: 'status', text: msg }); document.body.append(t); clearTimeout(toastT); toastT = setTimeout(() => t.remove(), 2600); };
+const setSave = (txt) => { $('#saveState').textContent = txt; };
+
+const DEFAULT_CONFIG = {
+  mortgageShare: 0.5, childSupport: 0, everydayTarget: 5200,
+  fixed: { rent: 1387, carLoan: 1081.36 },
+  targets: { Groceries: 1100, 'Eating out': 450, Cafes: 150, Fuel: 650, Transport: 150, Bills: 450, Insurance: 300, Health: 200, 'Personal care': 100, Shopping: 500, Clothing: 150, 'Home & furniture': 200, Entertainment: 80, Subscriptions: 115, Services: 150, Pets: 100, Gifts: 50, Other: 100 },
+  sinking: [ { name: 'Car rego', yearly: 2694 }, { name: 'Car insurance', yearly: 1478 }, { name: 'Council rates, your half', yearly: 1050 } ],
+  rules: [], partnerCards: ['3333'], partnerNames: ['ALEX P'], rentPayees: [],
+  goal: { cash: 50000 }, scenario: { sellCostPct: 2.5, breakCost: 0, leaseRentWeek: 650, leaseCostPct: 15 }
+};
+const cfg = () => ({ ...DEFAULT_CONFIG, ...(S.config || {}), fixed: { ...DEFAULT_CONFIG.fixed, ...(S.config?.fixed || {}) }, goal: { ...DEFAULT_CONFIG.goal, ...(S.config?.goal || {}) }, scenario: { ...DEFAULT_CONFIG.scenario, ...(S.config?.scenario || {}) } });
+
+// ---------- persistence ----------
+async function writeDoc(path, data, merge) {
+  if (DEMO) { setSave('Demo · not saved'); return true; }
+  if (!S.db) { toast("Can't save in this view"); return false; }
+  try { setSave('Saving…'); const ref = S.db.doc(path); if (merge) { const g = await ref.get(); if (g.exists) await ref.update(data); else await ref.set(data); } else await ref.set(data); setSave('Saved'); return true; }
+  catch (e) { setSave('Not saved'); toast(e?.code === 'quota_exceeded' ? 'Storage is full. Delete old imports to make room.' : "Couldn't save. Check your connection and try again."); return false; }
+}
+const saveConfig = (patch) => { S.config = { ...(S.config || {}), ...patch }; render(); return writeDoc('app/config', S.config); };
+
+// ---------- calculations ----------
+const sortedMonths = () => Object.keys(S.months).sort();
+function balanceFor(acct, m) {
+  // latest known balance on or before month m
+  const ms = sortedMonths().filter((x) => x <= m).reverse();
+  for (const k of ms) { const b = S.months[k]?.balances?.[acct.id]; if (has(b)) return { v: Number(b), m: k }; }
+  return null;
+}
+function netWorth(m) {
+  let assets = 0, liab = 0, liquid = 0, missing = [];
+  const by = {};
+  for (const a of S.accounts) {
+    const b = balanceFor(a, m); const share = (a.ownerPct ?? 100) / 100;
+    if (!b) { missing.push(a.name); continue; }
+    const v = b.v * share;
+    if (LIAB.has(a.type)) liab += v; else assets += v;
+    if (LIQUID.has(a.type)) liquid += v;
+    by[a.type] = (by[a.type] || 0) + v;
+  }
+  return { nw: assets + liab, assets, liab, liquid, missing, by };
+}
+function flows(m) {
+  const c = cfg(); const d = S.months[m] || {};
+  const income = n(d.income), otherIn = n(d.otherIn), rent = n(d.rent), car = n(d.carLoan);
+  const mortgageHalf = has(d.mortgagePaid) ? n(d.mortgagePaid) * c.mortgageShare : 0;
+  const child = has(d.childSupport) ? n(d.childSupport) : 0;
+  const spendCats = d.spend || {};
+  const cardSpend = Object.values(spendCats).reduce((s, v) => s + n(v), 0);
+  const shonnyOnCard = n(d.shonnyOnCard);
+  const own = Math.max(0, cardSpend - shonnyOnCard);
+  const lumpy = n(d.lumpy);
+  const everyday = Math.max(0, own - lumpy);
+  const inTotal = income + otherIn;
+  const net = inTotal - rent - car - mortgageHalf - child - own;
+  return { income, otherIn, rent, car, mortgageHalf, child, cardSpend, shonnyOnCard, own, lumpy, everyday, net, netExLumpy: net + lumpy, rate: inTotal ? net / inTotal : null, hasData: inTotal > 0 || cardSpend > 0 };
+}
+function payoff(balance, ratePct, payment) {
+  const B = Math.abs(n(balance)), r = n(ratePct) / 100 / 12, P = n(payment);
+  if (!B || !P) return null; if (!r) return { months: Math.ceil(B / P), interestMonth: 0 };
+  if (P <= B * r) return { months: Infinity, interestMonth: B * r };
+  return { months: Math.ceil(-Math.log(1 - (r * B) / P) / Math.log(1 + r)), interestMonth: B * r };
+}
+
+// ---------- CSV ----------
+function parseCSV(text) {
+  const rows = []; let row = [], f = '', q = false;
+  text = text.replace(/^﻿/, '');
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += ch; }
+    else if (ch === '"') q = true; else if (ch === ',') { row.push(f); f = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(f); rows.push(row); row = []; f = ''; }
+    else f += ch;
+  }
+  if (f !== '' || row.length) { row.push(f); rows.push(row); }
+  const head = (rows.shift() || []).map((h) => h.trim());
+  return rows.filter((r) => r.some((x) => x.trim())).map((r) => Object.fromEntries(head.map((h, i) => [h || ('col' + i), (r[i] ?? '').trim()])));
+}
+function parseDate(s) {
+  s = String(s || '').trim(); let m;
+  if ((m = s.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{2,4})$/))) { const mo = MONTHS.findIndex((x) => x.toLowerCase() === m[2].toLowerCase()) + 1; let y = +m[3]; if (y < 100) y += 2000; return `${y}-${String(mo).padStart(2, '0')}-${m[1].padStart(2, '0')}`; }
+  if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/))) { let y = +m[3]; if (y < 100) y += 2000; return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; }
+  if ((m = s.match(/^(\d{4})-(\d{2})-(\d{2})/))) return `${m[1]}-${m[2]}-${m[3]}`;
+  return null;
+}
+const last4 = (s) => (String(s || '').match(/(\d{4})\D*$/) || [])[1] || '';
+function classify(r, c) {
+  const det = (r.desc || '').toUpperCase(); const type = (r.type || '').toUpperCase(); const amt = r.amt;
+  for (const rule of c.rules || []) if (rule.match && det.includes(String(rule.match).toUpperCase())) return { cat: rule.cat };
+  if ((c.partnerCards || []).includes(r.acct)) return { cat: "Partner's card" };
+  if (type.includes('CREDIT CARD PAYMENT') || type.includes('CASH ADVANCE')) return { cat: 'Transfer' };
+  if (type === 'FEES' || type.includes('INTEREST')) return { cat: 'Interest & fees' };
+  if (type.includes('SALARY') || det.includes('SALARY')) return { cat: 'Income' };
+  if (/FIXED REPAYMENT|VARIABLE REPAYMENT|HOME LOAN/.test(det)) return { cat: 'Mortgage' };
+  if (/CAR LOAN/.test(det)) return { cat: 'Car loan' };
+  if (/CHILD SUPPORT/.test(det)) return { cat: 'Child support' };
+  if (amt > 0 && (c.partnerNames || []).some((p) => det.includes(p.toUpperCase()))) return { cat: det.includes('MORTGAGE') ? 'Partner mortgage share' : 'Partner other' };
+  if (amt < 0 && (c.rentPayees || []).some((p) => det.includes(p.toUpperCase()))) return { cat: 'Rent' };
+  if (/LINKED ACC|INTERNET PAYMENT|INTERNAL/.test(det) || r.nabCat === 'Internal transfers') return { cat: 'Transfer' };
+  if (amt > 0) return { cat: 'Money in' };
+  if (/VICROADS/.test(det)) return { cat: 'Rego' };
+  if (/COUNCIL/.test(det) && Math.abs(amt) > 100) return { cat: 'Council rates' };
+  if (/DRY CLEAN|HAIR/.test(det)) return { cat: /HAIR/.test(det) ? 'Personal care' : 'Services' };
+  if (/SKINCARE/.test(det)) return { cat: 'Personal care' };
+  if (/ANMF/.test(det)) return { cat: 'Other' };
+  return { cat: NAB_MAP[r.nabCat] || (/BAKER|BROTHERS|IGA|COLES|WOOLWORTHS|ALDI/.test(det) ? 'Groceries' : /CAFE|COFFEE|JORGE/.test(det) ? 'Cafes' : /DUMPLING|RAMEN|SUSHI|KITCHEN/.test(det) ? 'Eating out' : 'Other') };
+}
+function normaliseRows(raw) {
+  return raw.map((r) => {
+    const date = parseDate(r['Date'] || r['Transaction Date'] || r['date']);
+    const amt = n(r['Amount'] ?? r['amount'] ?? r['Debit'] ?? 0) || (n(r['Credit']) - n(r['Debit']));
+    const desc = r['Transaction Details'] || r['Description'] || r['Narrative'] || '';
+    const merchant = r['Merchant Name'] || '';
+    const acct = last4(r['Account Number'] || r['Account'] || '');
+    const bal = has(n(r['Balance'])) && r['Balance'] !== '' ? n(r['Balance']) : null;
+    return date ? { date, amt, desc, merchant, acct, bal, type: r['Transaction Type'] || '', nabCat: r['Category'] || '' } : null;
+  }).filter(Boolean);
+}
+const txKey = (t) => [t.date, t.amt.toFixed(2), t.acct, t.desc, t.bal ?? ''].join('|');
+function isLumpy(t) { return t.lumpy ?? (LUMPY_CATS.has(t.cat) || (SPEND_CATS.includes(t.cat) && -t.amt >= 400)); }
+function summarise(rows) {
+  const s = { income: 0, otherIn: 0, rent: 0, carLoan: 0, mortgagePaid: 0, childSupport: 0, shonnyMortgage: 0, shonnyOther: 0, shonnyCard: 0, spend: {}, lumpy: 0 };
+  for (const t of rows) {
+    const v = t.amt; const c = t.cat;
+    if (c === 'Income') s.income += v; else if (c === 'Money in') s.otherIn += v;
+    else if (c === 'Rent') s.rent -= v; else if (c === 'Car loan') s.carLoan -= v; else if (c === 'Mortgage') s.mortgagePaid -= v; else if (c === 'Child support') s.childSupport -= v;
+    else if (c === 'Partner mortgage share') s.shonnyMortgage += v; else if (c === 'Partner other') s.shonnyOther += v;
+    else if (c === "Partner's card") s.shonnyCard -= v;
+    else if (SPEND_CATS.includes(c)) { s.spend[c] = (s.spend[c] || 0) - v; if (isLumpy(t)) s.lumpy -= v; }
+  }
+  for (const k of Object.keys(s.spend)) s.spend[k] = Math.round(s.spend[k] * 100) / 100;
+  return s;
+}
+function balancesFromRows(rows) {
+  const out = {};
+  for (const a of S.accounts) {
+    const keys = (a.match || '').split(/[,\s]+/).filter(Boolean); if (!keys.length) continue;
+    const mine = rows.filter((t) => keys.includes(t.acct) && t.bal != null);
+    if (!mine.length) continue;
+    const maxD = mine.reduce((m, t) => (t.date > m ? t.date : m), '');
+    const t = mine.find((x) => x.date === maxD);
+    out[a.id] = t.bal;
+  }
+  return out;
+}
+async function importFiles(files) {
+  const c = cfg(); let all = [];
+  for (const f of files) { try { all = all.concat(normaliseRows(parseCSV(await f.text()))); } catch { toast(`Couldn't read ${f.name}. Export it as CSV from NAB internet banking.`); } }
+  if (!all.length) { toast('No transactions found in those files.'); return; }
+  const byMonth = {};
+  for (const t of all) { const m = t.date.slice(0, 7); (byMonth[m] ||= []).push(t); }
+  let added = 0;
+  for (const [m, rows] of Object.entries(byMonth)) {
+    const existing = await loadTx(m);
+    const seen = new Set(existing.map(txKey));
+    const fresh = rows.filter((t) => !seen.has(txKey(t))).map((t) => ({ ...t, cat: classify(t, c).cat }));
+    added += fresh.length;
+    const merged = existing.concat(fresh).sort((a, b) => b.date.localeCompare(a.date));
+    S.tx[m] = merged;
+    await writeDoc('tx/' + m, { rows: merged, updatedAt: new Date().toISOString() });
+    await applySummary(m, true);
+  }
+  const months = Object.keys(byMonth).sort();
+  S.month = months[months.length - 1]; fillMonthPick();
+  toast(`Imported ${added} new transaction${added === 1 ? '' : 's'} for ${months.map((m) => mLabel(m)).join(', ')}`);
+  render();
+}
+async function applySummary(m, withBalances) {
+  const rows = S.tx[m] || []; const s = summarise(rows); const c = cfg();
+  const prev = S.months[m] || {};
+  const half = s.mortgagePaid * c.mortgageShare;
+  const shonnyOnCard = Math.max(0, s.shonnyMortgage - half - s.shonnyCard);
+  const patch = { income: r2(s.income), otherIn: r2(s.otherIn), rent: r2(s.rent), carLoan: r2(s.carLoan), mortgagePaid: r2(s.mortgagePaid), shonnyMortgage: r2(s.shonnyMortgage), shonnyCard: r2(s.shonnyCard), shonnyOnCard: r2(shonnyOnCard), spend: s.spend, lumpy: r2(s.lumpy), txCount: rows.length, source: 'csv' };
+  if (s.childSupport) patch.childSupport = r2(s.childSupport);
+  if (withBalances) patch.balances = { ...(prev.balances || {}), ...balancesFromRows(rows) };
+  S.months[m] = { ...prev, ...patch };
+  await writeDoc('months/' + m, S.months[m]);
+}
+const r2 = (v) => Math.round(v * 100) / 100;
+async function loadTx(m) {
+  if (S.tx[m]) return S.tx[m];
+  if (!S.db) return S.tx[m] || [];
+  try { const g = await S.db.doc('tx/' + m).get(); S.tx[m] = g.exists ? (g.data().rows || []).map((r) => ({ ...r })) : []; } catch { return []; }
+  return S.tx[m];
+}
+
+// ---------- account list PDF ----------
+let pdfLibP;
+function loadPdfJs() {
+  if (pdfLibP) return pdfLibP;
+  const base = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+  const add = (src) => new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = src; sc.onload = res; sc.onerror = () => rej(new Error('load')); document.head.append(sc); });
+  pdfLibP = (async () => { await add(base + 'pdf.min.js'); await add(base + 'pdf.worker.min.js'); const lib = window.pdfjsLib || window['pdfjs-dist/build/pdf']; lib.GlobalWorkerOptions.workerSrc = base + 'pdf.worker.min.js'; return lib; })();
+  pdfLibP.catch(() => { pdfLibP = null; });
+  return pdfLibP;
+}
+async function pdfLines(file) {
+  const lib = await loadPdfJs();
+  const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise;
+  const lines = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const page = await doc.getPage(p); const tc = await page.getTextContent(); const rows = new Map();
+    for (const it of tc.items) { if (!it.str || !it.str.trim()) continue; const y = Math.round(it.transform[5] / 2) * 2; if (!rows.has(y)) rows.set(y, []); rows.get(y).push({ x: it.transform[4], s: it.str }); }
+    [...rows.entries()].sort((a, b) => b[0] - a[0]).forEach(([, its]) => lines.push(its.sort((a, b) => a.x - b.x).map((i) => i.s).join(' ').replace(/\s+/g, ' ').trim()));
+  }
+  return lines;
+}
+function parseAccountList(lines) {
+  const found = []; let date = null; let buf = [];
+  const amtRe = /([+\-−])?\s?\$\s?([\d,]+\.\d{2})/g;
+  const amounts = (t) => [...t.matchAll(amtRe)].map((m) => (m[1] === '-' || m[1] === '−' ? -1 : 1) * n(m[2]));
+  for (const ln of lines) {
+    const dm = ln.match(/(\d{2})\/(\d{2})\/(\d{4})\s+\d{1,2}:\d{2}/); if (dm) date = `${dm[3]}-${dm[2]}-${dm[1]}`;
+    const idm = ln.match(/Acc:\s*(\d+)|Card ending\s*(\d{4})|Loan number:\s*([A-Z0-9]+)/i);
+    if (!idm) { buf.push(ln); continue; }
+    const block = [...buf, ln]; buf = [];
+    const id = (idm[1] || idm[2] || idm[3] || '').slice(-4);
+    const amts = block.flatMap(amounts); if (!amts.length) continue;
+    const names = block.map((t) => t.replace(amtRe, '').replace(/BSB:.*$|Card ending.*$|Loan number:.*$/i, '').replace(/\b(Available|Current|Internet Banking|Accounts)\b/g, '').replace(/[+\-−]/g, '').trim()).filter((t) => /[A-Za-z]{2}/.test(t));
+    const name = names[names.length - 1] || 'Account …' + id;
+    const kind = /card ending/i.test(ln) ? 'card' : /home loan|mortgage/i.test(name) ? 'mortgage' : /loan/i.test(name) || /Loan number/i.test(ln) ? 'loan' : /offset/i.test(name) ? 'offset' : 'cash';
+    found.push({ id, name, bal: amts[amts.length - 1], kind });
+  }
+  return { found, date };
+}
+async function importAccountPdf(file) {
+  let parsed;
+  try { toast('Reading account list…'); parsed = parseAccountList(await pdfLines(file)); }
+  catch { toast("Couldn't read that PDF. Use the Accounts list PDF from NAB internet banking."); return; }
+  if (!parsed.found.length) { toast('No account balances found in that PDF.'); return; }
+  const month = parsed.date ? parsed.date.slice(0, 7) : S.month;
+  const guess = (f) => S.accounts.find((a) => (a.match || '').split(/[,\s]+/).includes(f.id)) || S.accounts.find((a) => a.type === f.kind && !(a.match || '').trim() && f.kind !== 'cash');
+  const body = el('div', { class: 'card' });
+  body.append(el('p', { class: 'cap muted', text: `Dated ${parsed.date ? new Date(parsed.date + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }) : 'unknown'}. Balances go into ${mLabel(month, true)}. Check each one is linked to the right account.` }));
+  const picks = parsed.found.map((f, i) => {
+    const g = guess(f); const sel = el('select', { class: 'month-pick', id: 'pdf-' + i, 'aria-label': 'Link ' + f.name }, el('option', { value: '' }, 'Skip'), el('option', { value: '__new' }, 'Add as new account'), S.accounts.map((a) => el('option', { value: a.id, selected: g && g.id === a.id }, a.name)));
+    if (!g) sel.value = '__new';
+    body.append(el('div', { class: 'field' }, el('label', { for: 'pdf-' + i }, f.name, el('small', { text: `…${f.id} · ${$2(f.bal)}` })), sel));
+    return { f, sel };
+  });
+  sheet('Balances from NAB', body, async () => {
+    if (S.month !== month) { S.month = month; fillMonthPick(); }
+    if (S.view !== 'checkin') go('checkin');
+    renderCheckin(true); const bal = S.draft.d.balances; let count = 0;
+    for (const { f, sel } of picks) {
+      let id = sel.value; if (!id) continue;
+      if (id === '__new') { const a = { id: 'a' + Date.now().toString(36) + count, name: f.name, type: f.kind, ownerPct: f.kind === 'mortgage' ? n(cfg().mortgageShare) * 100 : 100, match: f.id, order: S.accounts.length }; S.accounts.push(a); await writeDoc('accounts/' + a.id, a); id = a.id; }
+      else { const a = S.accounts.find((x) => x.id === id); const keys = (a.match || '').split(/[,\s]+/).filter(Boolean); if (!keys.includes(f.id)) { a.match = [...keys, f.id].join(','); await writeDoc('accounts/' + a.id, { ...a }); } }
+      bal[id] = f.bal; count++;
+    }
+    S.draft.dirty = true; renderCheckin(); toast(`${count} balances filled in. Check them, then tap Save month.`);
+  }, 'Fill in balances');
+}
+
+// ---------- charts ----------
+function lineChart(host, pts, opts = {}) {
+  host.replaceChildren();
+  if (!pts.length) { host.append(el('p', { class: 'cap muted', text: opts.empty || 'Nothing to chart yet.' })); return; }
+  const W = Math.max(280, host.clientWidth || 320), H = 170, pad = { l: 8, r: 8, t: 22, b: 22 };
+  const vals = pts.map((p) => p.v); let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (lo === hi) { lo -= Math.abs(lo) * 0.1 || 1; hi += Math.abs(hi) * 0.1 || 1; }
+  const span = hi - lo; lo -= span * 0.15; hi += span * 0.15;
+  const x = (i) => pts.length === 1 ? W / 2 : pad.l + 24 + (i * (W - pad.l - pad.r - 48)) / (pts.length - 1);
+  const y = (v) => pad.t + (H - pad.t - pad.b) * (1 - (v - lo) / (hi - lo));
+  const ns = 'http://www.w3.org/2000/svg'; const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', opts.label || 'Chart');
+  const mk = (t, a) => { const e = document.createElementNS(ns, t); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); svg.append(e); return e; };
+  for (let g = 0; g <= 2; g++) { const yy = pad.t + (g * (H - pad.t - pad.b)) / 2; mk('line', { x1: 0, x2: W, y1: yy, y2: yy, stroke: 'var(--line)', 'stroke-width': 1 }); }
+  if (pts.length > 1) {
+    const d = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join('');
+    mk('path', { d: d + `L${x(pts.length - 1)},${H - pad.b}L${x(0)},${H - pad.b}Z`, fill: 'var(--accent-soft)', opacity: 0.7 });
+    mk('path', { d, fill: 'none', stroke: 'var(--accent)', 'stroke-width': 2.2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+  }
+  pts.forEach((p, i) => { mk('circle', { cx: x(i), cy: y(p.v), r: i === pts.length - 1 ? 4.5 : 2.5, fill: 'var(--accent)' }); });
+  const step = Math.ceil(pts.length / 6);
+  pts.forEach((p, i) => { if (i % step === 0 || i === pts.length - 1) { const t = mk('text', { x: x(i), y: H - 6, 'text-anchor': 'middle' }); t.textContent = mLabel(p.m); } });
+  const lastI = pts.length - 1; const lt = mk('text', { x: Math.min(W - 4, Math.max(4, x(lastI))), y: y(pts[lastI].v) - 10, 'text-anchor': pts.length === 1 ? 'middle' : 'end' }); lt.textContent = $k(pts[lastI].v); lt.style.fill = 'var(--fg)';
+  host.append(svg);
+}
+function barChart(host, pts, opts = {}) {
+  host.replaceChildren();
+  if (!pts.length) { host.append(el('p', { class: 'cap muted', text: opts.empty || 'Nothing to chart yet.' })); return; }
+  const W = Math.max(280, host.clientWidth || 320), H = 160, pad = { t: 20, b: 22 };
+  const vals = pts.map((p) => p.v); const hi = Math.max(0, ...vals), lo = Math.min(0, ...vals); const span = (hi - lo) || 1;
+  const y = (v) => pad.t + (H - pad.t - pad.b) * (1 - (v - lo) / span);
+  const bw = Math.min(34, (W - 16) / pts.length * 0.6); const x = (i) => 8 + ((i + 0.5) * (W - 16)) / pts.length;
+  const ns = 'http://www.w3.org/2000/svg'; const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', opts.label || 'Chart');
+  const mk = (t, a) => { const e = document.createElementNS(ns, t); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); svg.append(e); return e; };
+  mk('line', { x1: 0, x2: W, y1: y(0), y2: y(0), stroke: 'var(--line)', 'stroke-width': 1 });
+  const step = Math.ceil(pts.length / 6);
+  pts.forEach((p, i) => {
+    const top = y(Math.max(0, p.v)), h = Math.max(1.5, Math.abs(y(p.v) - y(0)));
+    mk('rect', { x: x(i) - bw / 2, y: top, width: bw, height: h, rx: 3, fill: p.v >= 0 ? 'var(--good)' : 'var(--bad)', opacity: 0.85 });
+    const vt = mk('text', { x: x(i), y: p.v >= 0 ? top - 5 : top + h + 11, 'text-anchor': 'middle' }); vt.textContent = $k(p.v);
+    if (i % step === 0 || i === pts.length - 1) { const t = mk('text', { x: x(i), y: H - 5, 'text-anchor': 'middle' }); t.textContent = mLabel(p.m); }
+  });
+  host.append(svg);
+}
+
+// ---------- sheet (modal) ----------
+function sheet(title, body, onSave, saveLabel = 'Save') {
+  const bg = el('div', { class: 'sheet-bg', onclick: (e) => { if (e.target === bg) close(); } });
+  const close = () => bg.remove();
+  const s = el('div', { class: 'sheet', role: 'dialog', 'aria-label': title },
+    el('div', { class: 'row' }, el('h2', { text: title }), el('button', { class: 'btn small', type: 'button', onclick: close, text: 'Close' })),
+    body,
+    onSave ? el('div', { class: 'btns' }, el('button', { class: 'btn primary', type: 'button', text: saveLabel, onclick: async () => { if ((await onSave()) !== false) close(); } })) : null);
+  bg.append(s); document.body.append(bg);
+  setTimeout(() => s.querySelector('input,select,textarea')?.focus(), 50);
+  return close;
+}
+const moneyInput = (id, val, label) => el('div', { class: 'money' }, el('input', { id, type: 'text', inputmode: 'decimal', value: has(val) ? String(Number(val) !== 0 && Math.abs(Number(val)) < 1 ? +Number(val).toPrecision(4) : r2(Number(val))) : '', 'aria-label': label, placeholder: '0' }));
+const fieldRow = (labelTxt, sub, control, forId) => el('div', { class: 'field' }, el('label', { for: forId }, labelTxt, sub ? el('small', { text: sub }) : null), control);
+
+function accountSheet(acct) {
+  const a = acct ? { ...acct } : { id: 'a' + Date.now().toString(36), name: '', type: 'cash', ownerPct: 100, order: S.accounts.length };
+  const typeSel = el('select', { id: 'f-type', class: 'month-pick' }, Object.entries(TYPES).map(([k, v]) => el('option', { value: k, selected: k === a.type }, v)));
+  const body = el('div', { class: 'card' },
+    fieldRow('Name', null, el('input', { id: 'f-name', class: 'plain', value: a.name, placeholder: 'e.g. NAB offset' }), 'f-name'),
+    fieldRow('Type', null, typeSel, 'f-type'),
+    fieldRow('Your share', 'Percent you own', el('input', { id: 'f-own', class: 'plain', inputmode: 'decimal', value: a.ownerPct ?? 100 }), 'f-own'),
+    fieldRow('Match CSV account', 'Last 4 digits, comma separated', el('input', { id: 'f-match', class: 'plain', value: a.match || '', inputmode: 'numeric' }), 'f-match'),
+    fieldRow('Interest rate', '% a year, for loans', el('input', { id: 'f-rate', class: 'plain', inputmode: 'decimal', value: a.rate ?? '' }), 'f-rate'),
+    fieldRow('Repayment', 'Per month', moneyInput('f-pay', a.repayment, 'Repayment'), 'f-pay'),
+    fieldRow('Note', null, el('input', { id: 'f-note', class: 'plain', value: a.note || '' }), 'f-note'),
+    acct ? el('button', { class: 'btn small', type: 'button', text: 'Remove this account', onclick: async (e) => {
+      const b = e.currentTarget; if (b.dataset.armed) { await S.db?.doc('accounts/' + a.id).delete().catch(() => {}); S.accounts = S.accounts.filter((x) => x.id !== a.id); render(); $('.sheet-bg')?.remove(); toast('Removed'); }
+      else { b.dataset.armed = '1'; b.textContent = 'Tap again to remove'; } } }) : null);
+  sheet(acct ? 'Edit account' : 'Add account or loan', body, async () => {
+    const name = $('#f-name').value.trim(); if (!name) { toast('Give it a name'); return false; }
+    Object.assign(a, { name, type: $('#f-type').value, ownerPct: Math.max(0, Math.min(100, n($('#f-own').value) || 0)), match: $('#f-match').value.trim(), rate: $('#f-rate').value ? n($('#f-rate').value) : null, repayment: $('#f-pay').value ? n($('#f-pay').value) : null, note: $('#f-note').value.trim() });
+    const i = S.accounts.findIndex((x) => x.id === a.id); if (i >= 0) S.accounts[i] = a; else S.accounts.push(a);
+    render(); await writeDoc('accounts/' + a.id, a); toast('Saved');
+  });
+}
+
+// ---------- views ----------
+function renderHome() {
+  const m = S.month; const ms = sortedMonths();
+  const cur = netWorth(m); const prevM = ms.filter((x) => x < m).pop(); const prev = prevM ? netWorth(prevM) : null;
+  $('#h-nw').textContent = S.accounts.length ? $0(cur.nw) : '—';
+  const d = $('#h-nwd'); d.replaceChildren();
+  if (prev && S.accounts.length) { const ch = cur.nw - prev.nw; d.append(el('span', { class: ch >= 0 ? 'pos' : 'neg', text: sgn(ch) }), ` since ${mLabel(prevM)}`); }
+  else d.append(S.accounts.length ? `At end of ${mLabel(m, true)}` : 'Add your accounts in Wealth to see this.');
+  if (cur.missing.length) d.append(el('span', { class: 'muted', text: ` · no balance yet for ${cur.missing.length} account${cur.missing.length > 1 ? 's' : ''}` }));
+
+  const f = flows(m); const c = cfg();
+  const stats = $('#h-stats'); stats.replaceChildren();
+  const stat = (l, v, cls, sub, subCls) => el('div', { class: 'stat' }, el('span', { class: 'l', text: l }), el('span', { class: 'v ' + (cls || ''), text: v }), sub ? el('span', { class: 'd ' + (subCls || 'muted'), text: sub }) : null);
+  const ess = n(c.fixed.rent) + n(c.fixed.carLoan) + n(c.childSupport) + (f.mortgageHalf || 0) + n(c.everydayTarget);
+  stats.append(
+    stat('Cash flow', f.hasData ? $0(f.net) : '—', f.net >= 0 ? 'pos' : 'neg', f.hasData ? `${$0(f.netExLumpy)} without one-offs` : 'Import or key in this month'),
+    stat('Savings rate', f.rate == null ? '—' : pct(f.rate), f.rate >= 0 ? 'pos' : 'neg', 'Of money in'),
+    stat('Everyday spending', f.hasData ? $0(f.everyday) : '—', f.everyday <= c.everydayTarget ? 'pos' : 'neg', `Target ${$0(c.everydayTarget)}`),
+    stat('Emergency cover', cur.liquid > 0 && ess ? (cur.liquid / ess).toFixed(1) + ' months' : '—', '', `Cash ${$k(cur.liquid)}, your share`)
+  );
+  const nwPts = ms.filter((x) => S.months[x]?.balances && Object.keys(S.months[x].balances).length).map((x) => ({ m: x, v: netWorth(x).nw }));
+  lineChart($('#h-nwchart'), nwPts, { label: 'Net worth by month', empty: 'Save a check-in to start the chart.' });
+  barChart($('#h-cfchart'), ms.filter((x) => flows(x).hasData).map((x) => ({ m: x, v: flows(x).net })), { label: 'Cash flow by month', empty: 'Import a month of transactions to start.' });
+
+  const todo = $('#h-todo'); todo.replaceChildren(el('h2', { text: `${mLabel(m, true)} checklist` }));
+  const md = S.months[m] || {};
+  const item = (done, txt, tab) => el('div', { class: 'row', style: 'padding-block:8px;border-top:1px solid var(--line)' }, el('span', {}, el('span', { class: done ? 'pos' : 'muted', text: done ? '✓ ' : '○ ' }), txt), done ? null : el('button', { class: 'btn small', type: 'button', text: 'Go', onclick: () => go(tab) }));
+  const balCount = Object.keys(md.balances || {}).length;
+  todo.append(
+    item(md.txCount > 0, md.txCount ? `${md.txCount} transactions imported` : 'Import the month\'s CSVs', 'spend'),
+    item(balCount >= S.accounts.length && S.accounts.length > 0, `Balances keyed in (${balCount} of ${S.accounts.length})`, 'checkin'),
+    item(f.cardSpend > 0 && f.everyday <= c.everydayTarget, f.cardSpend > 0 ? (f.everyday <= c.everydayTarget ? 'Everyday spending on target' : `Everyday spending ${$0(f.everyday - c.everydayTarget)} over target`) : 'Check spending against targets', 'budget'));
+  if (md.notes) todo.append(el('p', { class: 'cap muted', text: md.notes }));
+}
+
+function renderCheckin(force) {
+  const m = S.month; $('#c-title').textContent = mLabel(m, true);
+  if (!S.draft || S.draft.m !== m || force) S.draft = { m, d: clone(S.months[m] || {}) };
+  const d = S.draft.d; d.balances ||= {};
+  const bal = $('#c-bal'); bal.replaceChildren();
+  if (!S.accounts.length) bal.append(el('div', { class: 'empty' }, el('p', { text: 'No accounts yet. Add your bank accounts, card, super, property and loans.' })));
+  const groups = [['Cash and cards', ['cash','offset','card']], ['Investments and super', ['invest','super']], ['Property and vehicles', ['property','vehicle','other']], ['Loans', ['mortgage','loan']]];
+  for (const [gname, types] of groups) {
+    const accts = S.accounts.filter((a) => types.includes(a.type)).sort((a, b) => (a.order ?? 0) - (b.order ?? 0)); if (!accts.length) continue;
+    bal.append(el('h3', { text: gname, style: 'margin-top:8px' }));
+    for (const a of accts) {
+      const last = balanceFor(a, mAdd(m, -1)); const id = 'b-' + a.id;
+      const inp = moneyInput(id, d.balances[a.id], a.name);
+      inp.querySelector('input').addEventListener('input', (e) => { S.draft.dirty = true; const v = e.target.value.trim(); if (v === '') delete d.balances[a.id]; else d.balances[a.id] = n(v) * (LIAB.has(a.type) && n(v) > 0 ? -1 : 1); renderCheckinResult(); });
+      const sub = [a.ownerPct !== 100 ? `Your share ${a.ownerPct}%` : null, last ? `Last: ${$0(last.v)} (${mLabel(last.m)})` : null, LIAB.has(a.type) ? 'owing' : null].filter(Boolean).join(' · ');
+      bal.append(fieldRow(a.name, sub, inp, id));
+    }
+  }
+  const flow = $('#c-flow'); flow.replaceChildren();
+  const F = [['income', 'Pay received', 'After tax'], ['otherIn', 'Other money in', 'Reimbursements, sales, gifts'], ['rent', 'Rent paid', null], ['carLoan', 'Car loan repayments', null], ['mortgagePaid', 'Mortgage repayments, total', `Your share ${pct(cfg().mortgageShare)}`], ['childSupport', 'Child support', null], ['shonnyCard', "Partner's card", 'Not counted as yours'], ['shonnyOnCard', "Partner's share on your card", 'Taken off your spending'], ['lumpy', 'One-off and yearly bills', 'Within your card spending']];
+  for (const [k, l, s] of F) { const id = 'f-' + k; const inp = moneyInput(id, d[k], l); inp.querySelector('input').addEventListener('input', (e) => { S.draft.dirty = true; d[k] = e.target.value.trim() === '' ? null : n(e.target.value); renderCheckinResult(); }); flow.append(fieldRow(l, s, inp, id)); }
+  const spendTotal = Object.values(d.spend || {}).reduce((s, v) => s + n(v), 0);
+  const sid = 'f-spendtotal'; const sInp = moneyInput(sid, spendTotal || null, 'Card spending total');
+  sInp.querySelector('input').addEventListener('input', (e) => { S.draft.dirty = true; d.spend = { Other: n(e.target.value) }; renderCheckinResult(); });
+  flow.append(fieldRow('Card spending, total', d.txCount ? `From ${d.txCount} imported transactions` : 'Or import CSVs for categories', sInp, sid));
+  if (d.txCount) sInp.querySelector('input').readOnly = true;
+  $('#c-notes').value = d.notes || '';
+  renderCheckinResult();
+}
+function renderCheckinResult() {
+  const m = S.month; const saved = S.months[m]; S.months[m] = S.draft.d; const f = flows(m); const nw = netWorth(m); if (saved) S.months[m] = saved; else delete S.months[m];
+  const r = $('#c-result'); r.replaceChildren(el('h2', { text: 'This month' }));
+  const line = (l, v, cls) => el('div', { class: 'row', style: 'padding-block:6px' }, el('span', { class: 'muted', text: l }), el('span', { class: 'num ' + (cls || ''), text: v }));
+  r.append(line('Net worth, your share', $0(nw.nw)), line('Your own spending', $0(f.own)), line('Everyday spending', $0(f.everyday), f.everyday <= cfg().everydayTarget ? 'pos' : 'neg'), line('Cash flow', $0(f.net), f.net >= 0 ? 'pos' : 'neg'), line('Savings rate', f.rate == null ? '—' : pct(f.rate)));
+}
+
+async function renderSpend() {
+  const m = S.month; const rows = await loadTx(m); if (S.view !== 'spend' || S.month !== m) return;
+  const md = S.months[m] || {}; const f = flows(m); const c = cfg();
+  const sum = $('#s-summary'); sum.replaceChildren(el('div', { class: 'row' }, el('h2', { text: mLabel(m, true) }), el('span', { class: 'pill ' + (f.everyday <= c.everydayTarget ? 'ok' : 'bad'), text: f.cardSpend ? (f.everyday <= c.everydayTarget ? 'On target' : 'Over target') : 'No data' })));
+  if (!f.cardSpend && !rows.length) sum.append(el('p', { class: 'muted cap', text: 'Import this month\'s CSVs to see where the money went.' }));
+  else sum.append(el('div', { class: 'grid2' },
+    el('div', { class: 'stat' }, el('span', { class: 'l', text: 'Card spending' }), el('span', { class: 'v', text: $0(f.cardSpend) })),
+    el('div', { class: 'stat' }, el('span', { class: 'l', text: 'Your everyday' }), el('span', { class: 'v ' + (f.everyday <= c.everydayTarget ? 'pos' : 'neg'), text: $0(f.everyday) })),
+    el('div', { class: 'stat' }, el('span', { class: 'l', text: 'One-offs' }), el('span', { class: 'v', text: $0(f.lumpy) })),
+    el('div', { class: 'stat' }, el('span', { class: 'l', text: "Partner's card" }), el('span', { class: 'v', text: $0(n(md.shonnyCard)) }))),
+    el('p', { class: 'cap muted', text: f.shonnyOnCard ? `${$0(f.shonnyOnCard)} of the card spending is treated as Partner's share, from her transfers beyond her mortgage half and her card.` : 'Tap a category on any transaction to fix it. Changes update the month straight away.' }));
+  const cats = $('#s-cats'); cats.replaceChildren();
+  const sp = Object.entries(md.spend || {}).filter(([, v]) => n(v) > 0).sort((a, b) => b[1] - a[1]);
+  const max = Math.max(1, ...sp.map(([, v]) => n(v)));
+  $('#s-total').textContent = sp.length ? $0(sp.reduce((s, [, v]) => s + n(v), 0)) : '';
+  if (!sp.length) cats.append(el('p', { class: 'cap muted', text: 'No spending recorded for this month yet.' }));
+  const pickCat = (k) => { S.catFilter = S.catFilter === k ? null : k; renderSpend().then(() => { if (S.catFilter) $('#s-txcard').scrollIntoView({ behavior: 'smooth', block: 'start' }); }); };
+  for (const [k, v] of sp) { const tgt = c.targets[k]; const over = tgt && v > tgt; cats.append(el('div', { class: 'catrow tap' + (S.catFilter === k ? ' sel' : ''), role: 'button', tabindex: '0', 'aria-label': `Show ${k} transactions`, onclick: () => pickCat(k), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickCat(k); } } }, el('div', { class: 'row' }, el('span', { text: k }), el('span', { class: 'num ' + (over ? 'neg' : ''), text: $0(v) + (tgt ? ` / ${$0(tgt)}` : '') })), el('div', { class: 'bar' }, el('i', { class: LUMPY_CATS.has(k) ? 'lumpy' : over ? 'over' : '', style: `width:${(v / max) * 100}%` })))); }
+
+  // recurring charges
+  const subs = $('#s-subs'); subs.replaceChildren(el('h2', { text: 'Recurring charges' }));
+  const allRows = Object.values(S.tx).flat();
+  const by = {}; for (const t of rows) if (SPEND_CATS.includes(t.cat) && t.amt < 0) { const k = (t.merchant || t.desc).replace(/\d{3,}.*$/, '').trim().slice(0, 32); (by[k] ||= []).push(t); }
+  const rec = Object.entries(by).filter(([k, ts]) => ['Subscriptions', 'Bills', 'Insurance'].includes(ts[0].cat) || allRows.filter((x) => (x.merchant || x.desc).startsWith(k) && x.date.slice(0, 7) !== m).length).map(([k, ts]) => [k, ts.reduce((s, t) => s - t.amt, 0), ts.length]).sort((a, b) => b[1] - a[1]).slice(0, 12);
+  if (!rec.length) subs.append(el('p', { class: 'cap muted', text: 'Subscriptions and bills show here once a month is imported.' }));
+  else { subs.append(el('div', { class: 'list' }, rec.map(([k, v, cnt]) => el('div', { class: 'row' }, el('span', { text: k + (cnt > 1 ? ` ×${cnt}` : '') }), el('span', { class: 'num', text: $2(v) }))))); subs.append(el('p', { class: 'cap muted', text: `About ${$0(rec.reduce((s, r) => s + r[1], 0))} a month. Worth a look for anything you no longer use.` })); }
+
+  // transactions
+  const filters = [['spend', 'Spending'], ['flow', 'Bills & transfers'], ['shonny', "Partner's"], ['all', 'All']];
+  const seg = $('#s-filter'); seg.replaceChildren(...filters.map(([k, l]) => el('button', { type: 'button', 'aria-pressed': !S.catFilter && S.filter === k ? 'true' : 'false', text: l, onclick: () => { S.filter = k; S.catFilter = null; renderSpend(); } })));
+  const q = S.search.trim().toLowerCase();
+  let show = rows.filter((t) => S.catFilter ? t.cat === S.catFilter : (S.filter === 'all' || (S.filter === 'spend' ? SPEND_CATS.includes(t.cat) : S.filter === 'shonny' ? /Partner/.test(t.cat) : FLOW_CATS.includes(t.cat) && !/Partner/.test(t.cat))));
+  if (q) show = show.filter((t) => (t.merchant + ' ' + t.desc).toLowerCase().includes(q));
+  if (S.sort === 'amount') show = [...show].sort((a, b) => Math.abs(b.amt) - Math.abs(a.amt));
+  $('#s-sort').textContent = S.sort === 'amount' ? 'Largest first' : 'Newest first';
+  $('#s-count').textContent = rows.length ? `${show.length} of ${rows.length}` : '';
+  const act = $('#s-active'); act.replaceChildren();
+  if (S.catFilter || q) {
+    const total = show.reduce((sum, t) => sum - t.amt, 0);
+    act.append(el('div', { class: 'row' },
+      el('span', { class: 'btns' }, S.catFilter ? el('button', { class: 'chip', type: 'button', 'aria-label': `Clear ${S.catFilter} filter`, onclick: () => { S.catFilter = null; renderSpend(); } }, S.catFilter, el('span', { 'aria-hidden': 'true', text: '×' })) : null,
+        q ? el('button', { class: 'chip', type: 'button', 'aria-label': 'Clear search', onclick: () => { S.search = ''; $('#s-search').value = ''; renderSpend(); } }, `“${S.search.trim()}”`, el('span', { 'aria-hidden': 'true', text: '×' })) : null),
+      el('span', { class: 'num cap', text: `${show.length} · ${$2(total)}` })));
+  }
+  const list = $('#s-tx'); list.replaceChildren();
+  if (!rows.length) { list.append(el('div', { class: 'empty' }, el('p', { text: 'No transactions imported for this month.' }), el('span', { class: 'btn small primary filebtn' }, 'Import CSVs', el('input', { type: 'file', class: 'csv-in', accept: '.csv,text/csv', multiple: true, 'aria-label': 'Import CSVs' })))); return; }
+  if (!show.length) list.append(el('p', { class: 'cap muted', style: 'padding-block:12px', text: 'No transactions match.' }));
+  for (const t of show.slice(0, 400)) {
+    const sel = el('select', { 'aria-label': 'Category for ' + t.desc }, ALL_CATS.map((k) => el('option', { value: k, selected: k === t.cat }, k)));
+    sel.addEventListener('change', async () => {
+      t.cat = sel.value; t.lumpy = undefined;
+      const key = t.desc.replace(/\d{4,}.*$/, '').trim().slice(0, 24);
+      await writeDoc('tx/' + m, { rows: S.tx[m], updatedAt: new Date().toISOString() }); await applySummary(m, false);
+      renderSpend();
+      const cfgNow = cfg();
+      if (key && !cfgNow.rules.some((r) => r.match === key)) {
+        const t2 = el('div', { class: 'toast', role: 'status' }, `Always file "${key}" as ${t.cat}? `, el('button', { class: 'btn small', type: 'button', text: 'Yes', style: 'margin-left:8px', onclick: async () => { t2.remove(); await saveConfig({ rules: [...cfgNow.rules.filter((r) => r.match !== key), { match: key, cat: t.cat }] }); toast('Rule saved'); } }));
+        $$('.toast').forEach((x) => x.remove()); document.body.append(t2); setTimeout(() => t2.remove(), 6000);
+      }
+    });
+    const lumpyBtn = SPEND_CATS.includes(t.cat) ? el('button', { class: 'pill' + (isLumpy(t) ? ' ok' : ''), type: 'button', text: isLumpy(t) ? 'One-off' : 'Mark one-off', onclick: async () => { t.lumpy = !isLumpy(t); await writeDoc('tx/' + m, { rows: S.tx[m], updatedAt: new Date().toISOString() }); await applySummary(m, false); renderSpend(); } }) : null;
+    const excluded = FLOW_CATS.includes(t.cat) && ['Transfer', "Partner's card"].includes(t.cat);
+    list.append(el('div', { class: 'tx' + (excluded ? ' excluded' : '') },
+      el('span', { class: 'desc', text: t.merchant || t.desc }),
+      el('span', { class: 'num ' + (t.amt > 0 ? 'pos' : ''), text: $2(t.amt) }),
+      el('span', { class: 'meta' }, el('span', { text: t.date.slice(8) + ' ' + MONTHS[+t.date.slice(5, 7) - 1] + (t.acct ? ' · …' + t.acct : '') }), sel, lumpyBtn)));
+  }
+}
+
+function renderBudget() {
+  const m = S.month; const c = cfg(); const f = flows(m); const md = S.months[m] || {};
+  const income = f.income || (S.months[sortedMonths().filter((x) => n(S.months[x].income) > 0).pop()]?.income ?? 0);
+  const sinkMonthly = (c.sinking || []).reduce((s, x) => s + n(x.yearly) / 12, 0);
+  const mortgageHalf = f.mortgageHalf || (() => { const mm = S.accounts.filter((a) => a.type === 'mortgage').reduce((s, a) => s + n(a.repayment), 0); return mm * c.mortgageShare; })();
+  const fixed = n(c.fixed.rent) + n(c.fixed.carLoan) + mortgageHalf + n(c.childSupport);
+  const left = n(income) - fixed - sinkMonthly; const tTotal = Object.values(c.targets).reduce((s, v) => s + n(v), 0);
+  const top = $('#b-top'); top.replaceChildren(el('h2', { text: 'Where your pay goes' }));
+  const line = (l, v, cls) => el('div', { class: 'row', style: 'padding-block:6px;border-top:1px solid var(--line)' }, el('span', { text: l }), el('span', { class: 'num ' + (cls || ''), text: v }));
+  top.append(line('Pay', $0(n(income))), line('Fixed costs', '−' + $0(fixed).replace('−', '')), line('Yearly bills set-aside', '−' + $0(sinkMonthly).replace('−', '')), line('Left for everyday', $0(left), left >= c.everydayTarget ? 'pos' : 'neg'), line('Everyday target', $0(c.everydayTarget)), line('Category targets add up to', $0(tTotal), tTotal > left ? 'neg' : ''));
+  top.append(el('p', { class: 'cap muted', text: left - c.everydayTarget >= 0 ? `About ${$0(left - c.everydayTarget)} a month spare at target.` : `Target is ${$0(c.everydayTarget - left)} more than you have. Lower it, or cut fixed costs.` }));
+  const box = $('#b-cats'); box.replaceChildren();
+  const actual = md.spend || {};
+  for (const k of SPEND_CATS) {
+    const tgt = n(c.targets[k]); const a = n(actual[k]); if (!tgt && !a) continue;
+    const ratio = tgt ? a / tgt : (a ? 1 : 0); const over = tgt && a > tgt;
+    const open = () => { S.catFilter = k; go('spend'); setTimeout(() => $('#s-txcard')?.scrollIntoView({ block: 'start' }), 300); };
+    box.append(el('div', { class: 'catrow' + (a ? ' tap' : ''), role: a ? 'button' : null, tabindex: a ? '0' : null, 'aria-label': a ? `Show ${k} transactions` : null, onclick: a ? open : null, onkeydown: a ? (e) => { if (e.key === 'Enter') open(); } : null }, el('div', { class: 'row' }, el('span', { text: k }), el('span', { class: 'num cap ' + (over ? 'neg' : 'muted'), text: `${$0(a)} of ${tgt ? $0(tgt) : 'no target'}` })), el('div', { class: 'bar' }, el('i', { class: LUMPY_CATS.has(k) ? 'lumpy' : over ? 'over' : '', style: `width:${Math.min(100, ratio * 100)}%` }))));
+  }
+  if (!box.children.length) box.append(el('p', { class: 'cap muted', text: 'Set targets to compare against.' }));
+  const sink = $('#b-sink'); sink.replaceChildren(el('div', { class: 'list' }, (c.sinking || []).map((x) => el('div', { class: 'row' }, el('span', { text: x.name }), el('span', { class: 'num', text: `${$0(n(x.yearly))}/yr · ${$0(n(x.yearly) / 12)}/mo` })))), el('div', { class: 'row', style: 'padding-top:8px' }, el('strong', { text: 'Set aside each month' }), el('strong', { class: 'num', text: $0(sinkMonthly) })));
+  const fx = $('#b-fixed'); fx.replaceChildren(el('div', { class: 'list' },
+    el('div', { class: 'row' }, el('span', { text: 'Rent' }), el('span', { class: 'num', text: $0(n(c.fixed.rent)) })),
+    el('div', { class: 'row' }, el('span', { text: 'Car loan' }), el('span', { class: 'num', text: $0(n(c.fixed.carLoan)) })),
+    el('div', { class: 'row' }, el('span', { text: `Mortgage, your ${pct(c.mortgageShare)}` }), el('span', { class: 'num', text: $0(mortgageHalf) })),
+    el('div', { class: 'row' }, el('span', { text: 'Child support' }), el('span', { class: 'num', text: n(c.childSupport) ? $0(n(c.childSupport)) : 'Not started' }))));
+}
+
+function renderWealth() {
+  const m = S.month; const c = cfg(); const nw = netWorth(m);
+  const mix = $('#w-mix'); mix.replaceChildren(el('div', { class: 'row' }, el('h2', { text: 'What you own and owe' }), el('span', { class: 'cap muted', text: 'your share' })));
+  const order = ['property', 'super', 'invest', 'offset', 'cash', 'vehicle', 'other', 'card', 'mortgage', 'loan'];
+  const total = Math.max(1, nw.assets);
+  mix.append(el('div', { class: 'list' }, order.filter((t) => nw.by[t]).map((t) => el('div', { class: 'catrow' }, el('div', { class: 'row' }, el('span', { text: TYPES[t] }), el('span', { class: 'num ' + (nw.by[t] < 0 ? 'neg' : ''), text: $0(nw.by[t]) })), nw.by[t] > 0 ? el('div', { class: 'bar' }, el('i', { style: `width:${(nw.by[t] / total) * 100}%` })) : null))));
+  mix.append(el('div', { class: 'row', style: 'padding-top:8px;border-top:1px solid var(--line)' }, el('strong', { text: 'Net worth' }), el('strong', { class: 'num', text: $0(nw.nw) })));
+
+  // property & loans
+  const prop = $('#w-property'); prop.replaceChildren(el('h2', { text: 'Property and loans' }));
+  const houses = S.accounts.filter((a) => a.type === 'property'); const morts = S.accounts.filter((a) => a.type === 'mortgage'); const loans = S.accounts.filter((a) => a.type === 'loan');
+  const hv = houses.reduce((s, a) => s + (balanceFor(a, m)?.v || 0), 0); const mb = morts.reduce((s, a) => s + (balanceFor(a, m)?.v || 0), 0);
+  if (hv) {
+    const lvr = Math.abs(mb) / hv; const eq = hv + mb;
+    prop.append(el('div', { class: 'grid2' },
+      el('div', { class: 'stat' }, el('span', { class: 'l', text: 'House value, whole' }), el('span', { class: 'v', text: $k(hv) })),
+      el('div', { class: 'stat' }, el('span', { class: 'l', text: 'Mortgage, whole' }), el('span', { class: 'v neg', text: $k(mb) })),
+      el('div', { class: 'stat' }, el('span', { class: 'l', text: 'Loan to value' }), el('span', { class: 'v ' + (lvr > 0.8 ? 'wrn' : ''), text: pct(lvr) })),
+      el('div', { class: 'stat' }, el('span', { class: 'l', text: 'Equity, your share' }), el('span', { class: 'v pos', text: $k(eq * (houses[0]?.ownerPct ?? 100) / 100) }))));
+  }
+  for (const a of [...morts, ...loans]) {
+    const b = balanceFor(a, m); const p = b ? payoff(b.v, a.rate, a.repayment) : null;
+    const yrs = p && Number.isFinite(p.months) ? `${Math.floor(p.months / 12)}y ${p.months % 12}m to go` : p ? 'Repayment doesn\'t cover interest' : 'Add balance, rate and repayment';
+    prop.append(el('div', { class: 'catrow' }, el('div', { class: 'row' }, el('strong', { text: a.name }), el('span', { class: 'num neg', text: b ? $0(b.v) : 'No balance' })),
+      el('div', { class: 'row cap muted' }, el('span', { text: [a.rate ? a.rate + '%' : null, a.repayment ? $0(a.repayment) + '/mo' : null, yrs].filter(Boolean).join(' · ') }), el('span', { text: p ? `~${$0(p.interestMonth)} interest/mo` : '' }))));
+  }
+  if (!hv && !morts.length && !loans.length) prop.append(el('p', { class: 'cap muted', text: 'Add the house, mortgage and car loan to see equity and payoff dates.' }));
+
+  // accounts list
+  const wl = $('#w-list'); wl.replaceChildren();
+  if (!S.accounts.length) wl.append(el('div', { class: 'empty' }, el('p', { text: 'No accounts yet.' })));
+  else wl.append(el('div', { class: 'list' }, [...S.accounts].sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type)).map((a) => { const b = balanceFor(a, m); return el('div', { class: 'row', style: 'cursor:pointer', role: 'button', tabindex: '0', onclick: () => accountSheet(a), onkeydown: (e) => { if (e.key === 'Enter') accountSheet(a); } }, el('span', {}, a.name, el('small', { class: 'cap muted', style: 'display:block', text: [TYPES[a.type], a.ownerPct !== 100 ? `${a.ownerPct}% yours` : null, b && b.m !== m ? `as of ${mLabel(b.m)}` : null, a.note].filter(Boolean).join(' · ') })), el('span', { class: 'num ' + (b && b.v < 0 ? 'neg' : ''), text: b ? $0(b.v) : 'Not set' })); })));
+
+  // housing scenarios
+  const sc = $('#w-scen'); const s = c.scenario; sc.replaceChildren(el('div', { class: 'row' }, el('h2', { text: 'House options' }), el('button', { class: 'btn small', type: 'button', text: 'Assumptions', onclick: scenSheet })));
+  const share = (houses[0]?.ownerPct ?? 50) / 100; const mortPay = morts.reduce((s2, a) => s2 + n(a.repayment), 0);
+  const myHalf = mortPay * c.mortgageShare; const rent = n(c.fixed.rent);
+  const saleNet = hv * (1 - n(s.sellCostPct) / 100) + mb - n(s.breakCost);
+  const leaseNet = n(s.leaseRentWeek) * 52 / 12 * (1 - n(s.leaseCostPct) / 100);
+  const rows = [
+    ['Keep as is', rent + myHalf, 'Rent plus your half of the mortgage'],
+    ['Sell, keep renting', rent, hv ? `Your cash from sale about ${$k(saleNet * share)}` : 'Add house value and mortgage'],
+    ['Rent it out jointly', rent + myHalf - leaseNet * share, `At ${$0(n(s.leaseRentWeek))}/wk, before tax deductions`],
+    ['Buy Partner out', mortPay + (hv + mb > 0 ? ((hv + mb) * (1 - share)) * (0.06 / 12) / (1 - Math.pow(1 + 0.06 / 12, -360)) : 0), 'Full mortgage plus a 30-year loan for her equity at 6%']
+  ];
+  sc.append(el('div', { class: 'list' }, rows.map(([l, v, sub]) => el('div', { class: 'row' }, el('span', {}, l, el('small', { class: 'cap muted', style: 'display:block', text: sub })), el('span', { class: 'num', text: $0(v) + '/mo' })))));
+  sc.append(el('p', { class: 'cap muted', text: 'Monthly housing cost to you. Rough numbers to compare options, not financial advice.' }));
+
+  // goal
+  const goal = $('#w-goal'); goal.replaceChildren();
+  const ms = sortedMonths().filter((x) => flows(x).hasData).slice(-6); const avg = ms.length ? ms.reduce((s2, x) => s2 + flows(x).netExLumpy - n(cfg().sinking.reduce((a2, y) => a2 + n(y.yearly) / 12, 0)), 0) / ms.length : 0;
+  const gap = n(c.goal.cash) - nw.liquid; const mo = avg > 0 ? Math.ceil(gap / avg) : null;
+  goal.append(el('div', { class: 'catrow' }, el('div', { class: 'row' }, el('span', { text: `${$0(nw.liquid)} of ${$0(n(c.goal.cash))}` }), el('span', { class: 'cap muted', text: pct(Math.max(0, Math.min(1, nw.liquid / n(c.goal.cash)))) })), el('div', { class: 'bar' }, el('i', { style: `width:${Math.max(0, Math.min(100, (nw.liquid / n(c.goal.cash)) * 100))}%` }))));
+  goal.append(el('p', { class: 'cap muted', text: gap <= 0 ? 'Goal reached.' : mo ? `About ${mo} months at your recent pace of ${$0(avg)} a month after yearly bills.` : 'Your recent months aren\'t saving after yearly bills, so there\'s no date yet.' }));
+
+  // history
+  const t = $('#w-hist'); t.replaceChildren();
+  const hm = sortedMonths().reverse();
+  const th = (x, left) => el('th', { text: x, style: `text-align:${left ? 'left' : 'right'};padding:6px 8px;color:var(--muted);font-weight:500;border-bottom:1px solid var(--line);white-space:nowrap` });
+  const td = (x, cls, left) => el('td', { class: 'num ' + (cls || ''), text: x, style: `text-align:${left ? 'left' : 'right'};padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap` });
+  t.append(el('thead', {}, el('tr', {}, th('Month', 1), th('Net worth'), th('Cash'), th('Cash flow'), th('Everyday'), th('Notes', 1))));
+  t.append(el('tbody', {}, hm.length ? hm.map((x) => { const w = netWorth(x), f = flows(x); return el('tr', { style: 'cursor:pointer', onclick: () => { S.month = x; fillMonthPick(); go('checkin'); } }, td(mLabel(x), '', 1), td($k(w.nw)), td($k(w.liquid)), td(f.hasData ? $0(f.net) : '—', f.net >= 0 ? 'pos' : 'neg'), td(f.hasData ? $0(f.everyday) : '—'), td((S.months[x].notes || '').slice(0, 40), 'muted', 1)); }) : el('tr', {}, td('No months saved yet', 'muted', 1))));
+}
+function scenSheet() {
+  const s = cfg().scenario;
+  const body = el('div', { class: 'card' },
+    fieldRow('Selling costs', '% of sale price', el('input', { id: 's-sc', class: 'plain', inputmode: 'decimal', value: s.sellCostPct }), 's-sc'),
+    fieldRow('Fixed-rate break cost', 'Ask NAB for a quote', moneyInput('s-bc', s.breakCost, 'Break cost'), 's-bc'),
+    fieldRow('Rent if leased', 'Per week', moneyInput('s-rw', s.leaseRentWeek, 'Weekly rent'), 's-rw'),
+    fieldRow('Leasing costs', '% of rent: agent, repairs, landlord insurance', el('input', { id: 's-lc', class: 'plain', inputmode: 'decimal', value: s.leaseCostPct }), 's-lc'));
+  sheet('House option assumptions', body, () => saveConfig({ scenario: { sellCostPct: n($('#s-sc').value), breakCost: n($('#s-bc').value), leaseRentWeek: n($('#s-rw').value), leaseCostPct: n($('#s-lc').value) } }));
+}
+function targetsSheet() {
+  const c = cfg(); const body = el('div', { class: 'card' }, fieldRow('Everyday target', 'Monthly, excluding one-offs', moneyInput('t-every', c.everydayTarget, 'Everyday target'), 't-every'), ...SPEND_CATS.filter((k) => !LUMPY_CATS.has(k)).map((k) => fieldRow(k, null, moneyInput('t-' + k.replace(/\W/g, ''), c.targets[k], k), 't-' + k.replace(/\W/g, ''))));
+  sheet('Monthly targets', body, () => { const t = {}; for (const k of SPEND_CATS) { const i = $('#t-' + k.replace(/\W/g, '')); if (i && i.value) t[k] = n(i.value); } return saveConfig({ targets: t, everydayTarget: n($('#t-every').value) }); });
+}
+function sinkSheet() {
+  const c = cfg(); const items = clone(c.sinking || []);
+  const body = el('div', { class: 'card' }); const draw = () => { body.replaceChildren(...items.map((x, i) => el('div', { class: 'field' }, el('input', { class: 'plain', value: x.name, 'aria-label': 'Bill name', oninput: (e) => { x.name = e.target.value; } }), el('div', { class: 'money' }, el('input', { type: 'text', inputmode: 'decimal', value: x.yearly, 'aria-label': 'Yearly cost', oninput: (e) => { x.yearly = n(e.target.value); } })))), el('button', { class: 'btn small', type: 'button', text: 'Add a bill', onclick: () => { items.push({ name: '', yearly: 0 }); draw(); } }), el('p', { class: 'cap muted', text: 'Clear a name to remove that bill.' })); }; draw();
+  sheet('Yearly bills', body, () => saveConfig({ sinking: items.filter((x) => x.name.trim()) }));
+}
+function fixedSheet() {
+  const c = cfg(); const body = el('div', { class: 'card' },
+    fieldRow('Rent', 'Per month', moneyInput('x-rent', c.fixed.rent, 'Rent'), 'x-rent'),
+    fieldRow('Car loan', 'Per month', moneyInput('x-car', c.fixed.carLoan, 'Car loan'), 'x-car'),
+    fieldRow('Child support', 'Per month, once it starts', moneyInput('x-cs', c.childSupport, 'Child support'), 'x-cs'),
+    fieldRow('Your mortgage share', '% of repayments', el('input', { id: 'x-ms', class: 'plain', inputmode: 'decimal', value: c.mortgageShare * 100 }), 'x-ms'));
+  sheet('Fixed costs', body, () => saveConfig({ fixed: { rent: n($('#x-rent').value), carLoan: n($('#x-car').value) }, childSupport: n($('#x-cs').value), mortgageShare: n($('#x-ms').value) / 100 }));
+}
+function goalSheet() { const c = cfg(); sheet('Cash goal', el('div', { class: 'card' }, fieldRow('Cash savings goal', 'Your share of cash accounts', moneyInput('g-cash', c.goal.cash, 'Goal'), 'g-cash')), () => saveConfig({ goal: { cash: n($('#g-cash').value) } })); }
+
+// ---------- investments ----------
+const KINDS = { etf: 'ETFs', stock: 'Shares', crypto: 'Crypto', fund: 'Managed funds' };
+const KIND_C = { etf: 'var(--accent)', stock: '#0f9d6b', crypto: '#f59f4c', fund: '#9b6bd6' };
+const hUnits = (h) => h.lots?.length ? h.lots.reduce((s, l) => s + n(l.units), 0) - n(h.sold) : n(h.units);
+const hCost = (h) => h.lots?.length ? h.lots.reduce((s, l) => s + n(l.units) * n(l.price) + n(l.fee), 0) : n(h.cost);
+const hValue = (h) => hUnits(h) * n(h.price);
+const fmtUnits = (u) => u >= 100 ? Math.round(u).toLocaleString('en-AU') : (+u.toFixed(4)).toString();
+const fmtPrice = (p) => p >= 1 ? $2(p) : '$' + (+p.toPrecision(3)).toString();
+function hSeries(h) {
+  // value over time: units held at each known price point (purchase prices, saved price updates, current price)
+  const pts = new Map();
+  (h.lots || []).forEach((l) => { if (l.date && n(l.price)) pts.set(l.date, n(l.price)); });
+  (h.history || []).forEach((x) => { if (x.d && n(x.p)) pts.set(x.d, n(x.p)); });
+  if (n(h.price)) pts.set(h.priceAt || new Date().toISOString().slice(0, 10), n(h.price));
+  const lots = [...(h.lots || [])].sort((a, b) => a.date.localeCompare(b.date));
+  return [...pts.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([d, p]) => {
+    const u = lots.length ? lots.filter((l) => l.date <= d).reduce((s2, l) => s2 + n(l.units), 0) : n(h.units);
+    return { d, v: u * p };
+  }).filter((x) => x.v > 0);
+}
+function sparkline(series) {
+  const ns = 'http://www.w3.org/2000/svg'; const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 64 26'); svg.setAttribute('class', 'spark'); svg.setAttribute('aria-hidden', 'true');
+  if (series.length < 2) return svg;
+  const t0 = Date.parse(series[0].d), t1 = Date.parse(series[series.length - 1].d) || t0 + 1;
+  const vs = series.map((x) => x.v), lo = Math.min(...vs), hi = Math.max(...vs), sp = hi - lo || 1;
+  const X = (d) => 2 + ((Date.parse(d) - t0) / ((t1 - t0) || 1)) * 60, Y = (v) => 23 - ((v - lo) / sp) * 20;
+  const d = series.map((x, i) => `${i ? 'L' : 'M'}${X(x.d).toFixed(1)},${Y(x.v).toFixed(1)}`).join('');
+  const up = vs[vs.length - 1] >= vs[0]; const col = up ? 'var(--good)' : 'var(--bad)';
+  const area = document.createElementNS(ns, 'path'); area.setAttribute('d', d + `L${X(series[series.length - 1].d).toFixed(1)},25L${X(series[0].d).toFixed(1)},25Z`); area.setAttribute('fill', col); area.setAttribute('opacity', '0.12'); svg.append(area);
+  const line = document.createElementNS(ns, 'path'); line.setAttribute('d', d); line.setAttribute('fill', 'none'); line.setAttribute('stroke', col); line.setAttribute('stroke-width', '1.6'); line.setAttribute('stroke-linecap', 'round'); line.setAttribute('stroke-linejoin', 'round'); svg.append(line);
+  const last = series[series.length - 1]; const dot = document.createElementNS(ns, 'circle'); dot.setAttribute('cx', X(last.d)); dot.setAttribute('cy', Y(last.v)); dot.setAttribute('r', '2'); dot.setAttribute('fill', col); svg.append(dot);
+  return svg;
+}
+const addHistory = (h, d, p) => { h.history = (h.history || []).filter((x) => x.d !== d); h.history.push({ d, p }); h.history.sort((a, b) => a.d.localeCompare(b.d)); if (h.history.length > 400) h.history = h.history.slice(-400); };
+function invTotals() { let v = 0, c = 0, d = 0; for (const h of S.holdings) { if (!hUnits(h)) continue; v += hValue(h); c += hCost(h); d += n(h.divs); } return { v, c, d, g: v - c }; }
+function renderInvest() {
+  const hs = S.holdings.filter((h) => hUnits(h) > 0).sort((a, b) => hValue(b) - hValue(a));
+  const T = invTotals();
+  $('#i-total').textContent = hs.length ? $0(T.v) : '—';
+  const g = $('#i-gain'); g.replaceChildren();
+  if (hs.length) {
+    g.append(el('span', { class: T.g >= 0 ? 'pos' : 'neg', text: `${sgn(T.g)} (${T.c ? sgn(T.g / T.c * 100, (x) => x.toFixed(0) + '%') : '—'})` }), ` on ${$0(T.c)} invested`);
+    const newest = hs.map((h) => h.priceAt || '').sort().pop();
+    if (newest) g.append(el('span', { class: 'muted', text: ` · prices ${new Date(newest + (newest.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}` }));
+  } else g.append('Add your holdings to track them here.');
+  // allocation
+  const al = $('#i-alloc'); al.replaceChildren(el('h2', { text: 'Allocation' }));
+  const byKind = {}; hs.forEach((h) => { byKind[h.kind] = (byKind[h.kind] || 0) + hValue(h); });
+  if (T.v) {
+    al.append(el('div', { class: 'alloc' }, Object.entries(byKind).map(([k, v]) => el('i', { style: `width:${(v / T.v) * 100}%;background:${KIND_C[k]}`, title: KINDS[k] }))));
+    al.append(el('div', { class: 'legend' }, Object.entries(byKind).sort((a, b) => b[1] - a[1]).map(([k, v]) => el('span', { style: `--c:${KIND_C[k]}`, text: `${KINDS[k]} ${pct(v / T.v)} · ${$k(v)}` }))));
+    const top = hs[0]; if (top && hValue(top) / T.v > 0.5) al.append(el('p', { class: 'cap muted', text: `${top.ticker} is ${pct(hValue(top) / T.v)} of the portfolio. A single holding that size carries most of the risk.` }));
+  } else al.append(el('p', { class: 'cap muted', text: 'Nothing held yet.' }));
+  // list
+  const li = $('#i-list'); li.replaceChildren(el('div', { class: 'row' }, el('h2', { text: 'Holdings' }), el('span', { class: 'cap muted', text: 'tap for detail' })));
+  for (const k of Object.keys(KINDS)) {
+    const group = hs.filter((h) => h.kind === k); if (!group.length) continue;
+    const gv = group.reduce((s2, h) => s2 + hValue(h), 0);
+    li.append(el('div', { class: 'row', style: 'margin-top:8px' }, el('h3', { text: KINDS[k] }), el('span', { class: 'num cap muted', text: $0(gv) })));
+    li.append(el('div', {}, group.map((h) => {
+      const v = hValue(h), c = hCost(h), gn = v - c, gp = c ? gn / c : 0; const share = gv ? v / gv : 0;
+      return el('div', { class: 'hold', role: 'button', tabindex: '0', onclick: () => holdingSheet(h), onkeydown: (e) => { if (e.key === 'Enter') holdingSheet(h); } },
+        el('div', {}, el('div', { class: 'tk', text: h.ticker }), el('div', { class: 'nm', text: `${h.name || ''} · ${fmtUnits(hUnits(h))} @ ${fmtPrice(n(h.price))}` })),
+        el('div', { class: 'mid' }, sparkline(hSeries(h)), el('div', { class: 'r' }, el('div', { class: 'num', text: $0(v) }), el('div', { class: 'cap num ' + (gn >= 0 ? 'pos' : 'neg'), text: `${sgn(gn)} · ${c ? (gp * 100).toFixed(0) + '%' : '—'}` }))),
+        h.target ? el('div', { class: 'cap muted', style: 'grid-column:1/-1', text: `${pct(share)} of ${KINDS[k]}, target ${h.target}%${Math.abs(share * 100 - h.target) >= 5 ? (share * 100 > h.target ? ' · over' : ' · under') : ''}` }) : null);
+    })));
+  }
+  if (!hs.length) li.append(el('div', { class: 'empty' }, el('p', { text: 'No holdings yet.' })));
+  const sold = S.holdings.filter((h) => !hUnits(h));
+  if (sold.length) li.append(el('p', { class: 'cap muted', style: 'margin-top:8px', text: `Watching: ${sold.map((h) => h.ticker).join(', ')}` }));
+  // dividends
+  const dv = $('#i-divs'); dv.replaceChildren(el('h2', { text: 'Dividends received' }));
+  const withD = hs.filter((h) => n(h.divs) > 0);
+  if (withD.length) { dv.append(el('div', { class: 'list' }, withD.map((h) => el('div', { class: 'row' }, el('span', { text: h.ticker + (h.drp ? ' · reinvested' : '') }), el('span', { class: 'num', text: $0(n(h.divs)) }))))); dv.append(el('div', { class: 'row', style: 'padding-top:8px;border-top:1px solid var(--line)' }, el('strong', { text: 'Total return incl. dividends' }), el('strong', { class: 'num ' + (T.g + T.d >= 0 ? 'pos' : 'neg'), text: sgn(T.g + T.d) }))); }
+  else dv.append(el('p', { class: 'cap muted', text: 'Record dividends on each holding to include them in your return.' }));
+}
+const SHEET_RANGES = { etf: ['ETFs!A2:G40', 3, 5, 6], stock: ['Stocks!A2:H40', 3, 6, 7], crypto: ['Crypto!A2:E40', 1, 3, 4] };
+let liveBusy = false;
+const setLive = (t, cls) => { const p = $('#i-live'); if (p) { p.textContent = t; p.className = 'cap ' + (cls || 'muted'); } };
+async function refreshFromSheet(manual) {
+  if (DEMO) { setLive('In the real app, prices come live from a linked Google Sheet.'); return; }
+  const id = cfg().priceSheet; if (!id) { setLive('No price sheet linked yet.'); return; }
+  if (liveBusy) return; liveBusy = true;
+  try {
+    if (S.mcp === undefined) S.mcp = (await window.claude?.use?.('mcp')) ?? null;
+    if (!S.mcp) { setLive("Live prices aren't available in this view. Use Edit prices instead."); return; }
+    setLive('Getting prices from your Google Sheet…');
+    const found = {};
+    for (const [kind, [range, pc, uc, vc]] of Object.entries(SHEET_RANGES)) {
+      const res = await S.mcp.callTool('Google Sheets', 'get_values', { spreadsheetId: id, range }, { cache: manual ? { refresh: true } : { staleTime: 120000 } });
+      const rows = (res && res.payload && res.payload.values) || [];
+      // only the holdings table at the top of each tab: stop at the first blank row, before the purchase history table
+      for (const r of rows) {
+        if (!r || !r.length || !String(r[0] || '').trim()) break;
+        const tk = String(r[0] || '').split(':').pop().trim().toUpperCase(); if (!tk || tk.length > 12 || found[tk]) continue;
+        const units = n(r[uc]), value = n(r[vc]), px = n(r[pc]);
+        const price = units > 0 && value > 0 ? value / units : px;
+        if (price > 0) found[tk] = { price, units, kind };
+      }
+    }
+    const today = new Date().toISOString().slice(0, 10); let changed = 0; const mismatch = [];
+    for (const h of S.holdings) {
+      const f = found[h.ticker]; if (!f) continue;
+      if (hUnits(h) > 0 && f.units > 0 && Math.abs(f.units - hUnits(h)) > 1e-6) mismatch.push(`${h.ticker} (sheet ${fmtUnits(f.units)}, here ${fmtUnits(hUnits(h))})`);
+      if (Math.abs(f.price - n(h.price)) < 1e-9 && h.priceAt === today) continue;
+      h.price = f.price; h.priceAt = today; addHistory(h, today, f.price); changed++;
+      await writeDoc('holdings/' + h.id, { ...h });
+    }
+    const extra = Object.entries(found).filter(([tk, f]) => f.units > 0 && !S.holdings.some((h) => h.ticker === tk)).map(([tk]) => tk);
+    if (changed) await syncInvestBalance();
+    try { localStorage.setItem('bm-live', String(Date.now())); } catch {}
+    const time = new Date().toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' });
+    setLive(`Live from your Google Sheet · ${time}` + (mismatch.length ? ` · Units differ for ${mismatch.join(', ')}` : '') + (extra.length ? ` · In the sheet but not here: ${extra.join(', ')}` : ''), mismatch.length ? 'wrn' : 'muted');
+    if (S.view === 'invest') renderInvest();
+  } catch (e) {
+    const code = e && e.code;
+    const msg = code === 'server_not_connected' ? 'Google Sheets isn\'t connected. Add it in claude.ai Settings → Connectors.'
+      : code === 'needs_reauth' ? 'Google Sheets needs reconnecting in claude.ai Settings → Connectors.'
+      : code === 'not_in_manifest' ? 'Google Sheets is turned off for this page. Allow it from the page\'s permissions to get live prices.'
+      : code === 'selection_required' ? 'Choose which Google Sheets connection to use when prompted, then tap Refresh prices.'
+      : code === 'tool_error' ? 'Your sheet couldn\'t be read. Check it still has the ETFs, Stocks and Crypto tabs.'
+      : code === 'not_granted' || code === 'capability_disabled' || code === 'capability_removed' ? "Live prices aren't available in this view. Use Edit prices instead."
+      : 'Couldn\'t reach Google Sheets just now. Tap Refresh prices to try again.';
+    setLive(msg, 'neg');
+  } finally { liveBusy = false; }
+}
+function maybeAutoRefresh() { if (DEMO) return; if (!S.holdings.length) return; let last = 0; try { last = +localStorage.getItem('bm-live') || 0; } catch {} if (Date.now() - last > 20 * 60 * 1000) refreshFromSheet(false); }
+async function syncInvestBalance() {
+  const acct = S.accounts.find((a) => a.type === 'invest'); if (!acct) return;
+  const m = thisMonth(); const total = r2(invTotals().v);
+  const md = S.months[m] || {}; S.months[m] = { ...md, balances: { ...(md.balances || {}), [acct.id]: total } };
+  await writeDoc('months/' + m, S.months[m]);
+}
+function pricesSheet() {
+  const hs = S.holdings.filter((h) => hUnits(h) > 0).sort((a, b) => hValue(b) - hValue(a));
+  const body = el('div', { class: 'card' }, el('p', { class: 'cap muted', text: 'Key in today\'s price for each holding in AUD. Leave a box as it is to keep the old price.' }),
+    ...hs.map((h) => fieldRow(h.ticker, `${KINDS[h.kind]} · ${fmtUnits(hUnits(h))} units`, moneyInput('p-' + h.id, h.price, h.ticker + ' price'), 'p-' + h.id)));
+  sheet('Update prices', body, async () => {
+    const today = new Date().toISOString().slice(0, 10); let ch = 0;
+    for (const h of hs) { const v = $('#p-' + h.id).value.trim(); if (v === '' || n(v) === n(h.price)) continue; addHistory(h, h.priceAt || today, n(h.price)); h.price = n(v); h.priceAt = today; addHistory(h, today, h.price); ch++; await writeDoc('holdings/' + h.id, { ...h }); }
+    await syncInvestBalance(); render(); toast(ch ? `${ch} price${ch > 1 ? 's' : ''} updated` : 'No prices changed');
+  }, 'Save prices');
+}
+function holdingSheet(hIn) {
+  const h = hIn ? clone(hIn) : { id: 'h' + Date.now().toString(36), ticker: '', name: '', kind: 'etf', price: null, lots: [], divs: 0 };
+  const lots = h.lots || []; const body = el('div', { class: 'card' });
+  const draw = () => {
+    const ch = el('div', { class: 'chart' }); const ser = hSeries({ ...h, lots });
+    if (hIn && ser.length > 1) lineChart(ch, ser.map((x) => ({ m: x.d.slice(0, 7), v: x.v })), { label: h.ticker + ' value over time' });
+    body.replaceChildren(
+      hIn && ser.length > 1 ? el('div', {}, el('h3', { text: 'Value over time' }), ch, el('p', { class: 'cap muted', text: 'Built from your purchase prices and each price update, so it fills in more as you update prices.' })) : null,
+      fieldRow('Ticker', 'e.g. VAS, NAB, ETH', el('input', { id: 'hd-tk', class: 'plain', value: h.ticker, autocapitalize: 'characters' }), 'hd-tk'),
+      fieldRow('Name', null, el('input', { id: 'hd-nm', class: 'plain', value: h.name || '' }), 'hd-nm'),
+      fieldRow('Type', null, el('select', { id: 'hd-kind', class: 'month-pick' }, Object.entries(KINDS).map(([k, v]) => el('option', { value: k, selected: k === h.kind }, v))), 'hd-kind'),
+      fieldRow('Current price', 'AUD per unit', moneyInput('hd-px', h.price, 'Price'), 'hd-px'),
+      fieldRow('Target', '% of its group', el('input', { id: 'hd-tg', class: 'plain', inputmode: 'decimal', value: h.target ?? '' }), 'hd-tg'),
+      fieldRow('Dividends received', 'After tax, all time', moneyInput('hd-dv', h.divs, 'Dividends'), 'hd-dv'),
+      fieldRow('Units sold', 'Taken off the units bought', el('input', { id: 'hd-sold', class: 'plain', inputmode: 'decimal', value: h.sold ?? '' }), 'hd-sold'),
+      el('h3', { text: 'Purchases', style: 'margin-top:8px' }),
+      lots.length ? el('div', { style: 'overflow-x:auto;max-height:16rem' }, el('table', { class: 'lots' }, el('thead', {}, el('tr', {}, el('th', { text: 'Date' }), el('th', { text: 'Units' }), el('th', { text: 'Price' }), el('th', { text: 'Cost' }), el('th', { text: '' }))),
+        el('tbody', {}, [...lots].map((l, i) => [l, i]).sort((a, b) => b[0].date.localeCompare(a[0].date)).map(([l, i]) => el('tr', {}, el('td', { text: l.date.split('-').reverse().join('/') }), el('td', { class: 'num', text: fmtUnits(n(l.units)) }), el('td', { class: 'num', text: fmtPrice(n(l.price)) }), el('td', { class: 'num', text: $0(n(l.units) * n(l.price) + n(l.fee)) }), el('td', {}, el('button', { class: 'btn small', type: 'button', text: '×', 'aria-label': 'Remove purchase', onclick: () => { keep(); lots.splice(i, 1); draw(); } }))))))) : el('p', { class: 'cap muted', text: 'No purchases recorded.' }),
+      el('div', { class: 'field' }, el('input', { id: 'nl-date', class: 'plain', type: 'date', 'aria-label': 'Purchase date', value: new Date().toISOString().slice(0, 10) }), el('input', { id: 'nl-units', class: 'plain', inputmode: 'decimal', placeholder: 'Units', 'aria-label': 'Units' })),
+      el('div', { class: 'field' }, moneyInput('nl-price', null, 'Price per unit'), moneyInput('nl-fee', null, 'Brokerage')),
+      el('button', { class: 'btn small', type: 'button', text: 'Add purchase', onclick: () => { const u = n($('#nl-units').value), p = n($('#nl-price').value); if (!u || !p) { toast('Enter units and price'); return; } keep(); lots.push({ date: $('#nl-date').value || new Date().toISOString().slice(0, 10), units: u, price: p, fee: n($('#nl-fee').value) }); draw(); } }),
+      hIn ? el('button', { class: 'btn small', type: 'button', text: 'Delete holding', style: 'margin-top:8px', onclick: async (e) => { const b = e.currentTarget; if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Tap again to delete'; return; } await S.db?.doc('holdings/' + h.id).delete().catch(() => {}); S.holdings = S.holdings.filter((x) => x.id !== h.id); await syncInvestBalance(); render(); $('.sheet-bg')?.remove(); toast('Deleted'); } }) : null);
+  };
+  const keep = () => { h.ticker = $('#hd-tk').value.trim().toUpperCase(); h.name = $('#hd-nm').value.trim(); h.kind = $('#hd-kind').value; h.price = $('#hd-px').value ? n($('#hd-px').value) : null; h.target = $('#hd-tg').value ? n($('#hd-tg').value) : null; h.divs = n($('#hd-dv').value); h.sold = $('#hd-sold').value ? n($('#hd-sold').value) : 0; };
+  draw();
+  sheet(hIn ? h.ticker : 'Add holding', body, async () => {
+    const oldPx = hIn ? n(hIn.price) : null; keep(); if (!h.ticker) { toast('Add a ticker'); return false; }
+    h.lots = lots; if (n(h.price) !== oldPx) { const today = new Date().toISOString().slice(0, 10); if (hIn?.priceAt && oldPx) addHistory(h, hIn.priceAt, oldPx); h.priceAt = today; addHistory(h, today, n(h.price)); }
+    const i = S.holdings.findIndex((x) => x.id === h.id); if (i >= 0) S.holdings[i] = h; else S.holdings.push(h);
+    await writeDoc('holdings/' + h.id, h); await syncInvestBalance(); render(); toast('Saved');
+  });
+}
+
+// ---------- routing ----------
+function fillMonthPick() {
+  const sel = $('#monthPick'); const set = new Set(sortedMonths()); set.add(thisMonth()); set.add(mAdd(thisMonth(), -1)); if (S.month) set.add(S.month);
+  const list = [...set].sort().reverse(); sel.replaceChildren(...list.map((m) => el('option', { value: m, selected: m === S.month }, mLabel(m, true))));
+}
+function go(view) {
+  S.view = view; $('#topTitle').textContent = { home: 'Home', checkin: 'Check-in', spend: 'Spending', budget: 'Budget', invest: 'Invest', wealth: 'Wealth' }[view] || 'Home';
+  $$('[data-view]').forEach((s) => { s.hidden = s.dataset.view !== view; });
+  $$('.tab').forEach((t) => t.setAttribute('aria-current', t.dataset.tab === view ? 'page' : 'false'));
+  try { localStorage.setItem('bm-view', view); } catch {}
+  if (location.hash.slice(1) !== view) history.replaceState(null, '', '#' + view);
+  render(true); window.scrollTo(0, 0);
+}
+function render(force) {
+  if (!S.month) return;
+  if (S.view === 'home') renderHome();
+  else if (S.view === 'checkin') { if (force) renderCheckin(true); }
+  else if (S.view === 'spend') renderSpend();
+  else if (S.view === 'budget') renderBudget();
+  else if (S.view === 'wealth') renderWealth();
+  else if (S.view === 'invest') { renderInvest(); if (force && S.ready.months) maybeAutoRefresh(); }
+}
+
+// ---------- events ----------
+$$('.tab').forEach((t) => t.addEventListener('click', () => go(t.dataset.tab)));
+$('#monthPick').addEventListener('change', (e) => { S.month = e.target.value; S.draft = null; S.catFilter = null; render(true); });
+$('#pdfIn').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importAccountPdf(f); });
+let sq; $('#s-search').addEventListener('input', (e) => { clearTimeout(sq); sq = setTimeout(() => { S.search = e.target.value; renderSpend(); }, 180); });
+$('#s-sort').addEventListener('click', () => { S.sort = S.sort === 'amount' ? 'date' : 'amount'; renderSpend(); });
+document.addEventListener('change', (e) => { if (!e.target.matches?.('.csv-in')) return; const fs = [...e.target.files]; e.target.value = ''; if (fs.length) importFiles(fs); });
+const dz = $('#dropzone');
+['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('over'); }));
+['dragleave', 'drop'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('over'); }));
+dz.addEventListener('drop', (e) => { const fs = [...(e.dataTransfer?.files || [])].filter((f) => /\.csv$/i.test(f.name)); if (fs.length) importFiles(fs); });
+$('#c-save').addEventListener('click', async () => { const m = S.month; const d = S.draft.d; d.notes = $('#c-notes').value.trim(); d.updatedAt = new Date().toISOString(); S.months[m] = clone(d); if (await writeDoc('months/' + m, S.months[m])) { S.draft.dirty = false; toast(`${mLabel(m, true)} saved`); } fillMonthPick(); });
+$('#c-reset').addEventListener('click', () => { renderCheckin(true); toast('Changes undone'); });
+$('#c-notes').addEventListener('input', (e) => { if (S.draft) { S.draft.dirty = true; S.draft.d.notes = e.target.value; } });
+$('#c-addacct').addEventListener('click', () => accountSheet(null));
+$('#w-add').addEventListener('click', () => accountSheet(null));
+$('#b-edit').addEventListener('click', targetsSheet);
+$('#b-sinkedit').addEventListener('click', sinkSheet);
+$('#b-fixedit').addEventListener('click', fixedSheet);
+$('#w-goaledit').addEventListener('click', goalSheet);
+$('#i-prices').addEventListener('click', pricesSheet);
+$('#i-refresh').addEventListener('click', () => refreshFromSheet(true));
+$('#i-add').addEventListener('click', () => holdingSheet(null));
+let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (S.view === 'home') renderHome(); }, 150); });
+
+// ---------- boot ----------
+function pickStartMonth() { const ms = sortedMonths(); return ms.length ? ms[ms.length - 1] : mAdd(thisMonth(), -1); }
+function onReady() {
+  if (!S.month) { S.month = pickStartMonth(); }
+  fillMonthPick(); render(S.view !== 'checkin' || !S.draft?.dirty);
+}
+(function start() {
+  let v = location.hash.slice(1); if (!['home', 'checkin', 'spend', 'budget', 'invest', 'wealth'].includes(v)) { try { v = localStorage.getItem('bm-view') || 'home'; } catch { v = 'home'; } }
+  S.month = mAdd(thisMonth(), -1); fillMonthPick(); go(v); S.month = null;
+  window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (h && h !== S.view && ['home', 'checkin', 'spend', 'budget', 'invest', 'wealth'].includes(h)) go(h); });
+  if (DEMO) { S.config = DEMO.config; S.accounts = DEMO.accounts; S.months = clone(DEMO.months); S.tx = clone(DEMO.tx); S.holdings = clone(DEMO.holdings); S.ready = { config: true, accounts: true, months: true }; setSave('Demo · made-up numbers'); onReady(); return; }
+  const cl = window.claude;
+  if (!cl?.use) { $('#noDb').hidden = false; setSave('Not saving'); S.month = mAdd(thisMonth(), -1); onReady(); return; }
+  cl.use('db').then((db) => {
+    S.db = db;
+    if (!db) { $('#noDb').hidden = false; setSave('Not saving'); S.month = mAdd(thisMonth(), -1); onReady(); return; }
+    setSave('Synced');
+    const done = () => { if (S.ready.config && S.ready.accounts && S.ready.months) onReady(); };
+    db.collection('holdings').onSnapshot((s) => { S.holdings = s.docs.map((d) => ({ id: d.id, ...clone(d.data()) })); if (S.ready.months && S.view === 'invest') { renderInvest(); maybeAutoRefresh(); } }, () => {});
+    db.doc('app/config').onSnapshot((s) => { S.config = s.exists ? s.data() : null; S.ready.config = true; done(); }, () => { S.ready.config = true; done(); });
+    db.collection('accounts').onSnapshot((s) => { S.accounts = s.docs.map((d) => ({ id: d.id, ...d.data() })); S.ready.accounts = true; done(); }, () => { S.ready.accounts = true; done(); });
+    db.collection('months').onSnapshot((s) => { const o = {}; s.docs.forEach((d) => { o[d.id] = clone(d.data()); }); S.months = o; S.ready.months = true; done(); }, () => { S.ready.months = true; done(); });
+  });
+})();
+})();
+</script>
