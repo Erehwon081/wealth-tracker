@@ -559,7 +559,7 @@ async function renderSpend() {
     const sel = el('select', { 'aria-label': 'Category for ' + t.desc }, [...ALL_CATS.filter((k) => partnerOn() || !/Partner/.test(k) || k === t.cat), ...(ALL_CATS.includes(t.cat) ? [] : [t.cat])].map((k) => el('option', { value: k, selected: k === t.cat }, pLabel(k))));
     sel.addEventListener('change', async () => {
       t.cat = sel.value; t.lumpy = undefined; t.userCat = true; // marks the copy to keep if it's ever found twice
-      const key = t.desc.replace(/\d{4,}.*$/, '').trim().slice(0, 24);
+      const key = t.desc.replace(/\d{4,}.*$/, '').trim().slice(0, 24).trim();
       await writeDoc('tx/' + m, { rows: S.tx[m], updatedAt: new Date().toISOString() }); await applySummary(m, false);
       renderSpend();
       // Remember the correction for this shop, so the next import files it the same way. Existing transactions aren't changed.

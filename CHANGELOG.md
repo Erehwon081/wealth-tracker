@@ -4,6 +4,10 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+### Fixed
+- Messages at the bottom of the screen now span its full width, with any button on the right.
+- The "Only this one" button on the message after changing a category is now readable in dark mode, and the shop name in that message no longer ends with a stray space.
+
 ## 1.0.21 (10 Nov 2026)
 
 ### Added
