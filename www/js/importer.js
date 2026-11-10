@@ -184,3 +184,40 @@ export function findDuplicates(rows, score = () => 0, days = 3) {
   }
   return groups.sort((a, b) => b.keep.date.localeCompare(a.keep.date));
 }
+
+// ---------- replacing saved transactions with a fresh import ----------
+// The files become the record for each account over the dates they cover. Saved transactions in that window are
+// replaced; anything the user set on them (category, tags) is copied to the matching new transaction first.
+//   saved: every saved transaction; incoming: [{ acct, rows }] from the files; score picks which saved copy to take
+//   settings from when the same transaction was saved more than once.
+// Returns { replace: saved rows to remove, rows: incoming rows with settings carried over, carried: how many }.
+export const CARRY = ['cat', 'userCat', 'lumpy', 'partner'];
+export function planReplace(saved, incoming, score = () => 0, days = 3) {
+  const all = (incoming || []).flatMap((g) => g.rows);
+  const windows = new Map();
+  for (const t of all) { const a = t.acct || ''; const w = windows.get(a) || [t.date, t.date]; windows.set(a, [t.date < w[0] ? t.date : w[0], t.date > w[1] ? t.date : w[1]]); }
+  const inWindow = (t, pad) => { const w = windows.get(t.acct || ''); return !!w && Date.parse(t.date) >= Date.parse(w[0]) - pad && Date.parse(t.date) <= Date.parse(w[1]) + pad; };
+  const replace = (saved || []).filter((t) => inWindow(t, 0));
+  // Saved transactions just outside the dates can still be the pending version of one inside them.
+  const near = (saved || []).filter((t) => !inWindow(t, 0) && inWindow(t, days * DAY));
+  const used = new Set(); const rows = []; let carried = 0;
+  const carry = (t, from) => { const out = { ...t }; for (const f of CARRY) if (from[f] !== undefined) out[f] = from[f]; carried++; return out; };
+  const byScore = (a, b) => score(b) - score(a);
+  // 1. Exact matches. If the same transaction was saved more than once, the best copy's settings are used and every copy goes.
+  const savedByKey = new Map(); for (const t of replace) { const k = matchKey(t); if (!savedByKey.has(k)) savedByKey.set(k, []); savedByKey.get(k).push(t); }
+  const newByKey = new Map(); for (const t of all) { const k = matchKey(t); if (!newByKey.has(k)) newByKey.set(k, []); newByKey.get(k).push(t); }
+  const rest = [];
+  for (const [k, news] of newByKey) {
+    const olds = (savedByKey.get(k) || []).sort(byScore);
+    news.forEach((t, i) => { if (olds[i]) rows.push(carry(t, olds[i])); else rest.push(t); });
+    olds.forEach((x) => used.add(x));
+  }
+  // 2. Pending purchases that went through with a new date or longer description.
+  for (const t of rest) {
+    const head = normDesc(t.desc).slice(0, 6), d = Date.parse(t.date);
+    const cands = [...replace, ...near].filter((x) => !used.has(x) && (x.acct || '') === (t.acct || '') && cents(x) === cents(t) && head.length >= 3 && normDesc(x.desc).slice(0, 6) === head && Math.abs(Date.parse(x.date) - d) <= days * DAY).sort(byScore);
+    if (cands.length) { used.add(cands[0]); if (!replace.includes(cands[0])) replace.push(cands[0]); rows.push(carry(t, cands[0])); }
+    else rows.push({ ...t });
+  }
+  return { replace, rows, carried };
+}

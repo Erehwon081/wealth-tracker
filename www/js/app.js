@@ -4,7 +4,7 @@ import { fetchAllPrices, looksLikePublishedCsv, SHEET_COLS } from './prices.js';
 import { buildBackup, encryptBackup, decryptBackup, isEncrypted, readBackup, backupFileName } from './backup.js';
 import { planReminders, DEFAULT_REMINDERS, isOurs } from './reminders.js';
 import { simulate, rateAt, rateChangeCost, sortHistory } from './loans.js';
-import { newOnly, findDuplicates, parseDate, last4, detectKind, parseOfx, parseQif, readCsv, resolveMapping, applyMapping, mappingOk } from './importer.js';
+import { newOnly, findDuplicates, planReplace, parseDate, last4, detectKind, parseOfx, parseQif, readCsv, resolveMapping, applyMapping, mappingOk } from './importer.js';
 import { seedCategory } from './merchants.js';
 import { fyOf, fyLabel, fyList, fySummary, matchParcels, unitsHeld, costHeld, totalDivs, frankingCredit, parseDividendRows, taxCsv } from './tax.js';
 
@@ -1124,7 +1124,8 @@ async function readBankFile(f) {
   const by = new Map(); for (const t of applyMapping(rows, r.mapping)) { if (!by.has(t.acct)) by.set(t.acct, []); by.get(t.acct).push(t); }
   return [...by.entries()].map(([acct, list]) => { const withBal = list.filter((t) => t.bal != null); const newest = withBal.length ? withBal.reduce((a, b) => (b.date > a.date ? b : a)) : null; return { acct, kind: 'cash', balance: newest ? newest.bal : null, rows: list }; });
 }
-async function importFiles(files) {
+// Reads the chosen files into groups of transactions per account, asking about layouts and accounts as needed.
+async function readFiles(files) {
   let all = []; const groups = [];
   for (const f of files) {
     let gs; try { gs = await readBankFile(f); } catch { gs = []; }
@@ -1136,8 +1137,13 @@ async function importFiles(files) {
       groups.push(g); all = all.concat(g.rows);
     }
   }
-  if (!all.length) return;
+  if (!all.length) return null;
   await linkAccounts(groups);
+  return { groups, all };
+}
+async function importFiles(files) {
+  const got = await readFiles(files); if (!got) return;
+  const { groups, all } = got;
   const c = cfg();
   // Only add what's new. Transactions already here keep their category; nothing already imported is changed.
   const touched = [...new Set(all.map((t) => t.date.slice(0, 7)))];
@@ -1161,8 +1167,36 @@ async function importFiles(files) {
 // ---------- duplicates ----------
 // Prefer the copy the user changed: recategorised, tagged, or on a category other than the one an import would give it.
 const keepScore = (t) => (t.userCat ? 4 : 0) + (t.partner || t.lumpy !== undefined ? 2 : 0) + (t.cat !== classify(t, cfg()).cat ? 1 : 0);
+async function loadAllTx() { try { const all = await store.getAll('tx'); for (const [k, rows] of Object.entries(all)) if (!S.tx[k] && Array.isArray(rows)) { fixRows(rows); S.tx[k] = rows; } } catch {} }
+// The files become the record for their accounts and dates: saved transactions there are replaced, keeping your categories and tags.
+async function replaceFiles(files) {
+  const got = await readFiles(files); if (!got) return;
+  await loadAllTx();
+  const plan = planReplace(Object.values(S.tx).flat(), got.groups, keepScore);
+  const c = cfg(); const rows = plan.rows.map((t) => (t.cat ? t : { ...t, cat: classify(t, c).cat }));
+  const fmt = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+  const spans = got.groups.map((g) => { const ds = g.rows.map((t) => t.date).sort(); const a = acctFor(g.acct); return `${a ? a.name : '…' + g.acct}: ${fmt(ds[0])} to ${fmt(ds[ds.length - 1])}`; });
+  const gone = plan.replace.length - plan.carried;
+  const body = el('div', { class: 'card' },
+    el('p', { text: `This replaces ${plan.replace.length} saved transaction${plan.replace.length === 1 ? '' : 's'} with the ${rows.length} in your file${files.length === 1 ? '' : 's'}.` }),
+    el('div', { class: 'list' }, spans.map((x) => el('div', { class: 'row' }, el('span', { class: 'cap', text: x })))),
+    el('p', { class: 'cap muted', text: `${plan.carried} keep the category and tags you had.${gone > 0 ? ` ${gone} saved transaction${gone === 1 ? ' isn\'t' : 's aren\'t'} in the files (usually copies imported twice) and will be removed.` : ''} Transactions outside these accounts and dates aren't touched.` }),
+    el('p', { class: 'cap muted', text: 'Make a backup first if you want to be able to undo this.' }));
+  sheet('Replace with a fresh import?', body, async () => {
+    const remove = new Set(plan.replace); const byMonth = {};
+    for (const t of rows) (byMonth[t.date.slice(0, 7)] ||= []).push(t);
+    const months = new Set([...plan.replace.map((t) => t.date.slice(0, 7)), ...Object.keys(byMonth)]);
+    for (const m of months) {
+      const kept = (S.tx[m] || []).filter((t) => !remove.has(t));
+      S.tx[m] = kept.concat(byMonth[m] || []).sort((a, b) => b.date.localeCompare(a.date));
+      await writeDoc('tx/' + m, { rows: S.tx[m] }); await applySummary(m, true);
+    }
+    const latest = [...months].sort().pop(); if (latest) { S.month = latest; fillMonthPick(); }
+    render(true); toast(`Replaced. ${rows.length} transactions, ${plan.carried} with your categories kept.`);
+  }, 'Replace');
+}
 async function duplicatesSheet() {
-  try { const all = await store.getAll('tx'); for (const [k, rows] of Object.entries(all)) if (!S.tx[k] && Array.isArray(rows)) { fixRows(rows); S.tx[k] = rows; } } catch {}
+  await loadAllTx();
   const groups = findDuplicates(Object.values(S.tx).flat(), keepScore);
   if (!groups.length) { toast('No duplicates found'); return; }
   const when = (t) => `${+t.date.slice(8)} ${MONTHS[+t.date.slice(5, 7) - 1]}`;
@@ -1532,6 +1566,7 @@ $('#pdfIn').addEventListener('change', (e) => { const f = e.target.files[0]; e.t
 let sq; $('#s-search').addEventListener('input', (e) => { clearTimeout(sq); sq = setTimeout(() => { S.search = e.target.value; renderSpend(); }, 180); });
 $('#s-dupes').addEventListener('click', duplicatesSheet);
 $('#s-sort').addEventListener('click', () => { S.sort = S.sort === 'amount' ? 'date' : 'amount'; renderSpend(); });
+$('#replaceIn').addEventListener('change', (e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) replaceFiles(fs); });
 $('#csvIn').addEventListener('change', (e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) importFiles(fs); });
 $('#divIn').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importDividends(f); });
 $('#restoreIn').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) restoreFromFile(f); });

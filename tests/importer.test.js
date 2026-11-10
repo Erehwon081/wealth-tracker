@@ -120,3 +120,30 @@ test('finds copies of the same transaction and keeps the one the user changed', 
   assert.deepEqual(g.find((x) => x.keep.acct === '4417').remove, [b2]);
   assert.deepEqual(findDuplicates([a1, other, far]), []);
 });
+
+import { planReplace } from '../www/js/importer.js';
+test('a fresh import replaces saved transactions for the same account and dates, keeping the user\'s settings', () => {
+  const s = (date, amt, desc, extra = {}) => tx(date, amt, desc, { acct: '4049', ...extra });
+  const saved = [
+    s('2026-11-06', -2290, 'ONLINE W3624318944 Linked Acc', { cat: 'Transfer', bal: 1 }),
+    s('2026-11-06', -2290, 'ONLINE W3624318944 Linked Acc', { cat: 'Rent', userCat: true, bal: 2 }), // a duplicate, recategorised
+    s('2026-11-03', -42.5, 'WOOLWORTHS 1234', { cat: 'Gifts', userCat: true, partner: true }),          // pending; posts on the 5th
+    s('2026-11-10', -9, 'GONE FROM THE BANK', { cat: 'Other' }),                                        // not in the file: removed
+    s('2026-10-01', -5, 'EARLIER', { cat: 'Other' }),                                                   // before the file: untouched
+    tx('2026-11-06', -1, 'OTHER ACCOUNT', { acct: '9999' }),                                             // other account: untouched
+  ];
+  const incoming = [{ acct: '4049', rows: [s('2026-11-05', -42.5, 'WOOLWORTHS 1234 MELBOURNE AUS'), s('2026-11-06', -2290, 'ONLINE W3624318944 LINKED ACC'), s('2026-11-12', -7, 'NEW ONE')] }];
+  const p = planReplace(saved, incoming, (t) => (t.userCat ? 4 : 0) + (t.partner ? 2 : 0));
+  assert.deepEqual(p.replace.map((t) => t.desc).sort(), ['GONE FROM THE BANK', 'ONLINE W3624318944 Linked Acc', 'ONLINE W3624318944 Linked Acc', 'WOOLWORTHS 1234']);
+  assert.equal(p.rows.length, 3); assert.equal(p.carried, 2);
+  const by = Object.fromEntries(p.rows.map((t) => [t.desc.slice(0, 6), t]));
+  assert.equal(by.ONLINE.cat, 'Rent'); assert.ok(by.ONLINE.userCat);
+  assert.equal(by.WOOLWO.cat, 'Gifts'); assert.ok(by.WOOLWO.partner); assert.equal(by.WOOLWO.date, '2026-11-05');
+  assert.equal(by['NEW ON'].cat, undefined); // left for the app to categorise
+});
+
+test('two genuine identical purchases both survive a fresh import', () => {
+  const c = (d) => tx(d, -5, 'CAFE', { cat: 'Cafes' });
+  const p = planReplace([c('2026-11-04'), c('2026-11-04')], [{ acct: '2222', rows: [c('2026-11-04'), c('2026-11-04')] }]);
+  assert.equal(p.rows.length, 2); assert.equal(p.replace.length, 2); assert.equal(p.carried, 2);
+});

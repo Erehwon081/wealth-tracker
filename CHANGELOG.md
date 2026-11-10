@@ -5,6 +5,7 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 ## Unreleased
 
 ### Added
+- Replace with a fresh import, in Check-in. Choose bank files and they replace what's saved for those accounts and dates, so the app matches your bank exactly. Copies imported twice disappear, and the categories and tags you set are carried across first. You see a summary and confirm before anything changes.
 - "Check for duplicates" at the bottom of Spending's transactions finds transactions imported more than once and removes the extra copies after you confirm. It keeps the copy you recategorised or tagged.
 
 ### Fixed

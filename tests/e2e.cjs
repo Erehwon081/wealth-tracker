@@ -352,6 +352,31 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   await ip.click('#s-dupes'); await ip.waitForTimeout(400);
   ok((await ip.textContent('.toast')).includes('No duplicates found'), 'running it again finds nothing');
 
+  // Replace with a fresh import: duplicates go, recategorised and tagged transactions keep their settings
+  await ip.evaluate(async () => {
+    const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); });
+    const rows = await new Promise((res) => { const q = db.transaction('tx').objectStore('tx').get('2026-11'); q.onsuccess = () => res(q.result); });
+    const base = { merchant: '', acct: '6789', type: '', nabCat: '' };
+    rows.push({ ...base, date: '2026-11-20', amt: -64.1, desc: 'ONLINE Z1112223334 Linked Acc', bal: 10, cat: 'Transfer' }, { ...base, date: '2026-11-20', amt: -64.1, desc: 'ONLINE Z1112223334 Linked Acc', bal: 11, cat: 'Gifts', userCat: true, partner: true });
+    const t = db.transaction('tx', 'readwrite'); t.objectStore('tx').put(rows, '2026-11'); await new Promise((res) => { t.oncomplete = res; });
+  });
+  await ip.reload(); await ip.waitForTimeout(800);
+  const fresh = path.join(tmp, 'fresh.ofx');
+  fs.writeFileSync(fresh, 'OFXHEADER:100\n<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKACCTFROM><ACCTID>123456789</BANKACCTFROM><BANKTRANLIST>\n'
+    + '<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261103<TRNAMT>-42.50<NAME>WOOLWORTHS 1234\n<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20261115<TRNAMT>4820.00<NAME>SALARY ACME\n'
+    + '<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261118<TRNAMT>-30.00<NAME>WOOLWORTHS 5678 SYDNEY\n<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261120<TRNAMT>-64.10<NAME>ONLINE Z1112223334 LINKED ACC\n'
+    + '<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261121<TRNAMT>-12.00<NAME>BRAND NEW SHOP\n</BANKTRANLIST><LEDGERBAL><BALAMT>5000.00<DTASOF>20261130</LEDGERBAL></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>');
+  await ip.click('.tab[data-tab=checkin]'); await ip.waitForTimeout(300);
+  await ipick('#v-checkin [data-pick=replaceIn]', fresh); await ip.waitForTimeout(700);
+  const rep = await ip.textContent('.sheet');
+  ok(rep.includes('Replace with a fresh import?') && rep.includes('Everyday account: 3 Nov 2026 to 21 Nov 2026') && rep.includes('with the 5 in your file'), 'a fresh import shows what it will replace before doing anything ' + rep.slice(0, 160));
+  await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(900);
+  await ip.click('.tab[data-tab=spend]'); await ip.selectOption('#monthPick', '2026-11'); await ip.waitForTimeout(400);
+  await ip.click('#s-filter button:text-is("All")'); await ip.waitForTimeout(300);
+  const after6789 = await ip.evaluate(() => [...document.querySelectorAll('#s-tx .tx')].filter((e) => e.textContent.includes('…6789')).map((e) => e.querySelector('.desc').textContent.slice(0, 14) + '=' + e.querySelector('select').value + (e.textContent.includes("Mark Sam's") || !e.textContent.includes("'s") ? '' : '+tag')));
+  ok(after6789.length === 5, `the account now matches the file exactly, with no duplicates (${after6789.length}: ${after6789.join(', ')})`);
+  ok(after6789.some((x) => x.startsWith('ONLINE Z111222') && x.includes('=Gifts')) && after6789.filter((x) => x.startsWith('WOOLWORTHS')).every((x) => x.includes('=Gifts')), 'recategorised transactions keep their category through the replace');
+
   // Category rules: the user's own rule wins over the built-in one
   await ip.click('#settingsBtn'); await ip.click('text=Edit category rules'); await ip.click('text=Add a rule');
   await ip.fill('.sheet:last-child [aria-label="Words to look for"]', 'SPOTIFY'); await ip.selectOption('.sheet:last-child [aria-label="Category"]', 'Entertainment');
