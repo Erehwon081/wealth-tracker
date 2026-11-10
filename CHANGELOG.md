@@ -4,6 +4,8 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+## 1.0.15 (10 Nov 2026)
+
 ### Added
 - Mortgage what-if. In Wealth, tap a loan to try an extra monthly repayment, a one-off lump sum or more money in the offset. It shows the new payoff date, the interest and time you'd save, and a chart of both paths. With more than one home loan, "What if: all home loans" covers them together.
 - Loan details. Each loan can now record whether it's fixed or variable, when the fixed term ends, its linked offset account and its rate history. With a rate history, the what-if shows roughly how much more interest a rate change has cost you so far.
