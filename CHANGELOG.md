@@ -4,6 +4,8 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+## 1.0.28 (10 Nov 2026)
+
 ### Changed
 - Messages at the bottom of the screen are back to small bubbles that fit their text, instead of spanning the full width. The "Only this one" button stays readable in dark mode.
 
