@@ -27,6 +27,7 @@
 <main class="wrap" id="app">
   <input type="file" id="pdfIn" accept="application/pdf,.pdf" hidden>
   <input type="file" id="csvIn" accept=".csv,text/csv,text/comma-separated-values,application/csv,application/vnd.ms-excel,text/plain" multiple hidden>
+  <input type="file" id="divIn" accept=".csv,text/csv,text/comma-separated-values,application/csv,application/vnd.ms-excel,text/plain" hidden>
   <input type="file" id="restoreIn" accept=".json,application/json,text/plain,application/octet-stream" hidden>
 
   <!-- HOME -->
@@ -93,12 +94,14 @@
     <div class="card" id="i-alloc"></div>
     <div class="card" id="i-list"></div>
     <div class="card" id="i-divs"></div>
+    <div class="card" id="i-tax"></div>
   </section>
 
   <!-- WEALTH -->
   <section data-view="wealth" id="v-wealth" hidden>
     <div class="card" id="w-mix"></div>
     <div class="card" id="w-property"></div>
+    <div class="card" id="w-ledger" hidden></div>
     <div class="card"><div class="row"><h2>Accounts and loans</h2><button class="btn small" id="w-add" type="button">Add</button></div><div id="w-list"></div></div>
     <div class="card" id="w-scen"></div>
     <div class="card"><div class="row"><h2>Cash goal</h2><button class="btn small" id="w-goaledit" type="button">Edit</button></div><div id="w-goal"></div></div>

@@ -221,6 +221,54 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   });
   ok(sel.chart === 'none' && sel.tab === 'none' && sel.menuBlocked, `charts and tabs can't be text-selected and the chart blocks the long-press menu (${JSON.stringify(sel)})`);
 
+  // Mortgage what-if, house ledger and tax year, on fresh sample data
+  const fctx = await browser.newContext({ ...devices['Pixel 7'], acceptDownloads: true });
+  const fp = await fctx.newPage(); const ferrors = []; fp.on('pageerror', (e) => ferrors.push(e.message));
+  const fpick = async (selector, files) => { const [fc] = await Promise.all([fp.waitForEvent('filechooser'), fp.click(selector)]); await fc.setFiles(files); };
+  const fclose = () => fp.evaluate(() => document.querySelectorAll('.sheet-bg').forEach((b) => b.remove()));
+  await fp.goto(BASE); await fp.waitForTimeout(600); await fp.click('text=Load sample data'); await fp.waitForTimeout(800);
+  await fp.click('.tab[data-tab=wealth]'); await fp.waitForTimeout(600);
+  await fp.locator('#w-property .catrow.tap', { hasText: 'Home loan' }).click(); await fp.waitForTimeout(500);
+  const before = await fp.textContent('.sheet');
+  ok(before.includes('What if: Home loan') && before.includes('in the offset') && before.includes('Enter an amount above'), 'what-if opens for a loan and counts the linked offset');
+  ok(/since the rate moved off 5\.39%/.test(before), 'what-if shows what the rate change has cost');
+  await fp.fill('#wi-extra', '500'); await fp.waitForTimeout(300);
+  const after = await fp.textContent('.sheet');
+  ok(/You save\$[\d,]+ and \d+y \d+m/.test(after) && await fp.locator('.sheet .chart svg path').count() === 2, 'an extra repayment shows the interest and time saved, with both lines charted');
+  await fclose();
+  const led = await fp.textContent('#w-ledger');
+  ok(await fp.isVisible('#w-ledger') && led.includes('Mortgage repayments') && led.includes('$16,800') && led.includes('$525') && /About \$[\d,]+ interest and \$[\d,]+ off the loan/.test(led), 'house ledger totals the financial year and splits interest from principal');
+  await fp.click('#w-ledger >> text=Edit'); await fp.fill('#lg-ins', 'PET INSURANCE'); await fp.click('text=Add an earlier amount'); await fp.fill('.sheet [aria-label="Amount"]', '30000');
+  await fp.click('.sheet .btn.primary'); await fp.waitForTimeout(700);
+  await fp.selectOption('#w-ledger select', '2027'); await fp.waitForTimeout(300);
+  ok((await fp.textContent('#w-ledger')).includes('$221'), 'ledger finds insurance by payee in the transactions');
+  await fp.selectOption('#w-ledger select', 'all'); await fp.waitForTimeout(300);
+  ok((await fp.textContent('#w-ledger')).includes('$51,000'), 'earlier amounts are added to the all-years total');
+
+  await fp.click('.tab[data-tab=invest]'); await fp.waitForTimeout(600);
+  const tax0 = await fp.textContent('#i-tax');
+  ok(tax0.includes('2026–27') && tax0.includes('$166.20') && tax0.includes('$67.70') && tax0.includes('No sales recorded'), 'tax year shows cash dividends and franking credits');
+  await fp.locator('.hold', { hasText: 'CBA' }).click(); await fp.waitForTimeout(400);
+  await fp.fill('#ns-units', '10'); await fp.fill('#ns-price', '170'); await fp.fill('#ns-fee', '10'); await fp.click('text=Add sale'); await fp.waitForTimeout(300);
+  await fp.fill('#nd-amt', '70'); await fp.fill('#nd-units', '0.5'); await fp.click('text=Add dividend'); await fp.waitForTimeout(300);
+  await fp.click('.sheet .btn.primary'); await fp.waitForTimeout(700);
+  const tax1 = await fp.textContent('#i-tax');
+  ok(tax1.includes('held over 12 months') && tax1.includes('$700.01') && tax1.includes('$350.01') && tax1.includes('$236.20'), 'a sale is matched to the oldest parcel, discounted, and a new dividend is counted');
+  ok((await fp.locator('.hold', { hasText: 'CBA' }).textContent()).includes('40.5 @'), 'units held drop by the sale and rise by the reinvested dividend');
+  const [tdl] = await Promise.all([fp.waitForEvent('download'), fp.click('#i-tax >> text=Export CSV')]);
+  const taxPath = path.join(tmp, 'tax.csv'); await tdl.saveAs(taxPath);
+  ok(tdl.suggestedFilename() === 'wealth-tracker-tax-2026-27.csv' && fs.readFileSync(taxPath, 'utf8').includes('Net capital gain,350.01'), 'tax summary exports as CSV');
+  const divCsv = path.join(tmp, 'divs.csv'); fs.writeFileSync(divCsv, 'Payment Date,Ticker,Net Amount,Franking %\n15/10/2026,ASX:VGS,55.00,0%\n15/10/2026,ASX:ZZZ,9.00,0%\n');
+  await fpick('#i-tax [data-pick=divIn]', divCsv); await fp.waitForTimeout(700);
+  ok((await fp.textContent('.toast')).includes('1 dividend added. Not in your holdings: ZZZ') && (await fp.textContent('#i-tax')).includes('$291.20'), 'dividends import from a CSV');
+  await fp.reload(); await fp.waitForTimeout(800);
+  ok((await fp.textContent('#i-tax')).includes('$350.01'), 'sales and dividends are saved');
+  await fp.click('.tab[data-tab=wealth]'); await fp.waitForTimeout(500);
+  await fp.locator('#w-list .row', { hasText: 'Home loan' }).click(); await fp.waitForTimeout(400);
+  ok(await fp.isVisible('#f-loanbox') && await fp.locator('#f-loanbox input[type=date]').count() === 2 && await fp.inputValue('#f-offset') === 'offset', 'loan details show the rate history and linked offset');
+  ok(ferrors.length === 0, 'no page errors in the new screens ' + JSON.stringify(ferrors));
+  await fctx.close();
+
   // Reminders, as in the Android app: a stand-in for Capacitor's notification plugin records what gets scheduled
   const nctx = await browser.newContext({ ...devices['Pixel 7'] });
   await nctx.addInitScript(() => {

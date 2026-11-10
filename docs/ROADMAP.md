@@ -15,18 +15,20 @@ Planned features, in the order agreed with the user on 10 Nov 2026. Each is its 
 - The single cash goal becomes a list of savings goals: target, optional date, and a linked account or a manual balance.
 - Lives in Budget.
 
-## 3. Mortgage what-if
+## 3. Mortgage what-if (built 10 Nov 2026)
 
 - Loan accounts gain: fixed or variable, fixed-term end date, linked offset account, and rate history (date and rate).
 - From Wealth > Property and loans, tap a loan to set an extra monthly repayment, a lump sum and extra money in the offset. It shows the payoff date and total interest before and after, the interest saved, and a balance chart with both lines. It works per split and combined.
 - "What the rate change has cost": the rate difference applied to actual month-end balances since the change.
 
-## 4. House ledger
+## 4. House ledger (built 10 Nov 2026)
 
 - The property account gains "Costs for this property": chosen categories and payees (mortgage, council rates, building insurance by payee, and a new Home repairs category), plus manual entries for years before the app.
 - A Wealth card by financial year: totals for each type of cost, mortgage interest vs principal (estimated from the rate), partner contributions from the mortgage-share transfers, and your net contribution. Feeds the House options numbers.
 
-## 5. Financial year (tax) view
+## 5. Financial year (tax) view (built 10 Nov 2026)
+
+Not done: choosing individual parcels by hand (sales offer oldest first, highest cost first or newest first), and a direct import from the user's sheet (a CSV file import exists; its dividend tab layout is unknown).
 
 - Dividends become individual payments: date, cash, franking %, reinvested units. Franking credit = franked amount × 30/70, or 25/75 for base-rate entities; the rate is set per holding.
 - Sales become records (date, units, price, brokerage), matched to purchase parcels oldest first by default, with an option to choose parcels. The 50% CGT discount applies to parcels held over 12 months. Crypto works the same way.

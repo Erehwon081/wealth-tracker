@@ -4,6 +4,19 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+### Added
+- Mortgage what-if. In Wealth, tap a loan to try an extra monthly repayment, a one-off lump sum or more money in the offset. It shows the new payoff date, the interest and time you'd save, and a chart of both paths. With more than one home loan, "What if: all home loans" covers them together.
+- Loan details. Each loan can now record whether it's fixed or variable, when the fixed term ends, its linked offset account and its rate history. With a rate history, the what-if shows roughly how much more interest a rate change has cost you so far.
+- House ledger in Wealth. For each financial year, or all years, it totals what's been paid toward the house: mortgage repayments (with an estimate of interest versus principal), council rates, building insurance and repairs. It then takes off Shonny's contributions to show your net contribution. Under Edit, name your building insurer and add totals for years before the app.
+- A new "Home repairs" spending category, which feeds the house ledger.
+- Tax year view in Invest. Pick a financial year to see cash dividends, franking credits and grossed-up income, plus capital gains for each parcel sold, with the 50% discount for parcels held over 12 months. Export it as a CSV for your tax return.
+- Dividends and sales on each holding. Record each dividend with its franked percentage (and units, if reinvested), and each sale with its price and brokerage. Sales come off your oldest parcels by default; you can choose highest cost first or newest first.
+- Import dividends from a CSV with Date, Ticker and Amount columns, and optionally Franking %.
+
+### Changed
+- A holding's cost and gain now cover only the parcels you still hold.
+- The purchase form's price and brokerage boxes now say what they're for.
+
 ## 1.0.13 (10 Nov 2026)
 
 ### Added
