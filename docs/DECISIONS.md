@@ -6,7 +6,6 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 
 - **Live prices are unverified against a real sheet.** The cloud sandbox blocks docs.google.com, so cross-origin fetches of the published CSV were never tested. The user hasn't yet pasted real links (they once saved three empty boxes). If Refresh prices says "Couldn't reach Google Sheets", try Google's other CSV link format (`/gviz/tq?tqx=out:csv&sheet=<tab>`, which needs link sharing on), or an Apps Script web app returning JSON. Don't add a proxy.
 - **Untested on a real phone:** Back up now through the share sheet, the back-button order, status bar icon colour per theme, and vibration. The user has installed the APK and reported layout issues only so far.
-- **Reminders untested on a real phone:** verify the permission prompt, delivery after a reboot, the status bar icon, and that tapping opens Check-in.
 - **Version numbering:** `1.0.<run number>` skips numbers because branch builds use them too. A version set in `package.json` (minor for features, patch for fixes), with `versionCode` still taken from the run number, was suggested but not decided.
 - **Node 20 deprecation warnings** in Actions: `actions/upload-artifact@v4`, and `upload-pages-artifact@v3` / `deploy-pages@v4` in `pages.yml`. Bump them when newer majors are available.
 
@@ -49,4 +48,5 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 
 - **9 Nov 2026**: Built the PWA from the artifact, deployed to Pages. Partner tagging, expected pay, the new look, motion and swipe, the first Android releases (1.0.4, 1.0.6, 1.0.8).
 - **10 Nov 2026**: Release notes from the changelog (1.0.10). Added `CLAUDE.md` and this file. The user plans one Claude Code chat per release, grouped in a Claude project.
+- **10 Nov 2026**: The user confirmed on their phone (1.0.13) that reminders work: the permission prompt, delivery, the status bar icon and tap-to-open Check-in. Chart dragging no longer brings up the copy menu, and the Spending and chart fixes are good. Not yet checked: delivery after a phone restart.
 - **10 Nov 2026**: Added `docs/ROADMAP.md` (six features, agreed order). Built roadmap item 1, reminder notifications. Removed the Spending import card. Fixed cash flow chart label overlap.

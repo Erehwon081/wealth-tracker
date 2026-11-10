@@ -2,7 +2,7 @@
 
 Planned features, in the order agreed with the user on 10 Nov 2026. Each is its own release with its own changelog notes. Update the status here when one ships, and record design choices in `docs/DECISIONS.md`. Everything stays on the device: no servers, no third-party services.
 
-## 1. Month-end reminder notifications (built 10 Nov 2026, ships in the next release)
+## 1. Month-end reminder notifications (shipped in 1.0.13, confirmed working on the user's phone)
 
 - Android app only, using `@capacitor/local-notifications`. The website keeps its Home backup reminder, since it can't schedule notifications without a push server.
 - Settings > Reminders: a month-end check-in (off, last day, 1st, or a chosen date, plus a time), and a backup reminder (30 days after the last backup). Later: bills due, once item 2 exists.
