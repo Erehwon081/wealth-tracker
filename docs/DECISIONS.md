@@ -67,6 +67,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 - **Status bar icon** `assets/android-res/drawable/ic_stat_wealth.xml` is copied into the generated project in CI. Without it Android shows a generic info icon.
 
 ### Spending and charts
+- **The Spending category bar shows shares of the month's spend** (flex per category), not a fraction of card spend or the everyday target, so it always fills the width.
 - **Imports happen only in Check-in.** The Spending import card was a duplicate, removed at the user's request.
 - **The bar chart reserves a label row under the axis when any month is negative**, so loss labels don't sit on the month names. Month labels skip a regular one that would crowd the last (`showLabel`).
 
@@ -75,6 +76,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 
 ## Log
 
+- **10 Nov 2026**: Spending's category bar now fills its width with each category's share of spend (1.0.26). Full-width toasts (1.0.24) came from misreading "the whole bar"; reverted to fit-content bubbles at the user's request (1.0.28), keeping the outline toast button.
 - **9 Nov 2026**: Built the PWA from the artifact, deployed to Pages. Partner tagging, expected pay, the new look, motion and swipe, the first Android releases (1.0.4, 1.0.6, 1.0.8).
 - **10 Nov 2026**: Release notes from the changelog (1.0.10). Added `CLAUDE.md` and this file. The user plans one Claude Code chat per release, grouped in a Claude project.
 - **10 Nov 2026**: The user confirmed on their phone (1.0.13) that reminders work: the permission prompt, delivery, the status bar icon and tap-to-open Check-in. Chart dragging no longer brings up the copy menu, and the Spending and chart fixes are good. Not yet checked: delivery after a phone restart.
