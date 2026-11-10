@@ -4,6 +4,12 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+### Fixed
+- Importing a bank file only adds transactions that are new. Ones already in the app keep the category you gave them, even when a later download formats them a little differently or a pending card purchase has since gone through with a new date.
+
+### Changed
+- Changing a transaction's category now remembers it for that shop straight away, so the next import files it the same way. Tap "Only this one" on the message if it was a one-off. Before, it only stuck if you tapped "Yes" within a few seconds.
+
 ## 1.0.17 (10 Nov 2026)
 
 ### Added

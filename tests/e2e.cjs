@@ -312,6 +312,24 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   ok(!(await ip.locator('.sheet', { hasText: 'Check the columns' }).count()), 'the same layout is remembered and not asked again');
   if (await ip.locator('.sheet').count()) { await ip.selectOption('#ia-acct', { label: 'Everyday account' }); await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(800); }
 
+  // Re-importing keeps corrections: change a category, then import a later download of the same account
+  await ip.click('.tab[data-tab=spend]'); await ip.selectOption('#monthPick', '2026-11'); await ip.waitForTimeout(500);
+  await ip.locator('#s-tx .tx', { hasText: 'WOOLWORTHS' }).locator('select').selectOption('Gifts'); await ip.waitForTimeout(500);
+  ok((await ip.textContent('.toast')).includes('New "WOOLWORTHS" transactions will be filed as Gifts too'), 'a category change is remembered for that shop straight away');
+  // the later download: Woolworths now posted two days later with a longer description and a balance; one new purchase each
+  const ofx2 = path.join(tmp, 'everyday2.ofx');
+  fs.writeFileSync(ofx2, 'OFXHEADER:100\n<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKACCTFROM><ACCTID>123456789</BANKACCTFROM><BANKTRANLIST>\n<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261105<TRNAMT>-42.50<NAME>WOOLWORTHS 1234 MELBOURNE AUS\n<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20261115<TRNAMT>4820.00<NAME>SALARY ACME\n<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261118<TRNAMT>-30.00<NAME>WOOLWORTHS 5678 SYDNEY\n</BANKTRANLIST><LEDGERBAL><BALAMT>5291.09<DTASOF>20261130</LEDGERBAL></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>');
+  await ip.click('.tab[data-tab=checkin]'); await ip.waitForTimeout(300);
+  await ipick('#v-checkin [data-pick=csvIn]', ofx2); await ip.waitForTimeout(900);
+  ok((await ip.textContent('.toast')).includes('Imported 1 new transaction'), 'only the genuinely new transaction is imported');
+  await ip.click('.tab[data-tab=spend]'); await ip.selectOption('#monthPick', '2026-11'); await ip.waitForTimeout(500);
+  const wool = await ip.locator('#s-tx .tx', { hasText: 'WOOLWORTHS' }).evaluateAll((els) => els.map((e) => e.querySelector('select').value));
+  ok(JSON.stringify(wool) === '["Gifts","Gifts"]', `the earlier correction is kept and the new Woolworths purchase follows it (${wool})`);
+  await ip.locator('#s-tx .tx', { hasText: 'SALARY' }).locator('select').selectOption('Money in'); await ip.waitForTimeout(400);
+  await ip.click('.toast >> text=Only this one'); await ip.waitForTimeout(400);
+  const rulesNow = await ip.evaluate(async () => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); }); return new Promise((res) => { const q = db.transaction('config').objectStore('config').get('app'); q.onsuccess = () => res(q.result.rules.map((x) => x.match)); }); });
+  ok(JSON.stringify(rulesNow) === '["WOOLWORTHS"]', `"Only this one" doesn't keep a rule (${rulesNow})`);
+
   // Category rules: the user's own rule wins over the built-in one
   await ip.click('#settingsBtn'); await ip.click('text=Edit category rules'); await ip.click('text=Add a rule');
   await ip.fill('.sheet:last-child [aria-label="Words to look for"]', 'SPOTIFY'); await ip.selectOption('.sheet:last-child [aria-label="Category"]', 'Entertainment');

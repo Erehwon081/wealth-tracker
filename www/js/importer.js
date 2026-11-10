@@ -132,3 +132,36 @@ export function resolveMapping(rows, saved = []) {
 }
 
 export const readCsv = (text) => csvRows(text).filter((r) => r.some((c) => String(c).trim()));
+
+// ---------- telling new transactions from ones already imported ----------
+// Upper case, letters and digits only, so spacing and punctuation differences between downloads don't matter.
+export const normDesc = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+const cents = (t) => Math.round(Number(t.amt) * 100);
+// The running balance is left out on purpose: it can differ between two downloads of the same transaction.
+export const matchKey = (t) => [t.date, cents(t), t.acct || '', normDesc(t.desc).slice(0, 40)].join('|');
+const DAY = 86400000;
+
+// Returns only the incoming transactions that aren't already in `existing`.
+// 1. Exact matches (same date, amount, account and description), counted, so two identical coffees on one day still both import.
+// 2. A card purchase that was pending in an earlier download can come back with a new date or longer description once it
+//    goes through. An existing transaction counts as the same one if it has the same account and amount, the description
+//    starts the same way, it's within `days` days, and it falls within the dates the new file covers for that account,
+//    widened by `days` because a purchase often posts a day or two after it was pending. Older purchases the new file
+//    doesn't reach can't swallow a genuine new one.
+export function newOnly(existing, incoming, days = 3) {
+  const pool = new Map();
+  for (const e of existing || []) { const k = matchKey(e); if (!pool.has(k)) pool.set(k, []); pool.get(k).push(e); }
+  const used = new Set(); const rest = [];
+  for (const t of incoming || []) { const hit = (pool.get(matchKey(t)) || []).find((e) => !used.has(e)); if (hit) used.add(hit); else rest.push(t); }
+  const range = new Map();
+  for (const t of incoming || []) { const a = t.acct || ''; const r = range.get(a) || [t.date, t.date]; range.set(a, [t.date < r[0] ? t.date : r[0], t.date > r[1] ? t.date : r[1]]); }
+  const fresh = [];
+  for (const t of rest) {
+    const a = t.acct || '', r = range.get(a), head = normDesc(t.desc).slice(0, 6), d = Date.parse(t.date);
+    const from = Date.parse(r[0]) - days * DAY, to = Date.parse(r[1]) + days * DAY;
+    const hit = (existing || []).find((e) => !used.has(e) && (e.acct || '') === a && cents(e) === cents(t) && Date.parse(e.date) >= from && Date.parse(e.date) <= to
+      && Math.abs(Date.parse(e.date) - d) <= days * DAY && head.length >= 3 && normDesc(e.desc).slice(0, 6) === head);
+    if (hit) used.add(hit); else fresh.push(t);
+  }
+  return fresh;
+}

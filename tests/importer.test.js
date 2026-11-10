@@ -72,3 +72,36 @@ test('starter merchant rules', () => {
   for (const [d, c] of [['WOOLWORTHS 1234 MELBOURNE', 'Groceries'], ['COLES EXPRESS 1234', 'Fuel'], ['UBER *EATS SYDNEY', 'Eating out'], ['UBER *TRIP', 'Transport'], ['NETFLIX.COM', 'Subscriptions'], ['Bunnings 123', 'Home & furniture'], ['VICROADS REGO', 'Rego'], ['AGL SALES PTY', 'Bills']]) assert.equal(seedCategory(d), c, d);
   assert.equal(seedCategory('SOMETHING UNKNOWN PTY LTD'), null);
 });
+
+import { newOnly } from '../www/js/importer.js';
+const tx = (date, amt, desc, extra = {}) => ({ date, amt, desc, acct: '2222', bal: null, ...extra });
+
+test('re-importing adds only what is new, and ignores formatting and balance differences', () => {
+  const existing = [tx('2026-12-03', -42.5, 'WOOLWORTHS 1234 MELBOURNE', { cat: 'Gifts' }), tx('2026-12-04', -18, 'SOME CAFE')];
+  const incoming = [tx('2026-12-03', -42.5, 'Woolworths  1234, Melbourne', { bal: 999 }), tx('2026-12-04', -18, 'SOME CAFE'), tx('2026-12-05', -61, 'KMART')];
+  assert.deepEqual(newOnly(existing, incoming).map((t) => t.desc), ['KMART']);
+});
+
+test('two identical purchases on one day both import, but only once', () => {
+  const two = [tx('2026-12-04', -5, 'CAFE'), tx('2026-12-04', -5, 'CAFE')];
+  assert.equal(newOnly([], two).length, 2);
+  assert.equal(newOnly([two[0]], two).length, 1);
+  assert.equal(newOnly(two, two).length, 0);
+});
+
+test('a pending purchase that went through with a new date or longer description is the same transaction', () => {
+  const pending = [tx('2026-11-30', -42.5, 'WOOLWORTHS 1234')];
+  const posted = [tx('2026-11-29', -10, 'OTHER'), tx('2026-12-02', -42.5, 'WOOLWORTHS 1234 MELBOURNE AUS')];
+  assert.equal(newOnly(pending, posted).length, 1); // only OTHER is new
+  // different amount, different shop, or too far apart: new
+  assert.equal(newOnly(pending, [tx('2026-11-29', -1, 'X'), tx('2026-12-02', -42.6, 'WOOLWORTHS 1234')]).length, 2);
+  assert.equal(newOnly(pending, [tx('2026-11-29', -1, 'X'), tx('2026-12-02', -42.5, 'COLES 99')]).length, 2);
+  assert.equal(newOnly(pending, [tx('2026-11-20', -1, 'X'), tx('2026-12-06', -42.5, 'WOOLWORTHS 1234')]).length, 2);
+});
+
+test("an older purchase outside the new file's dates never swallows a genuine new one", () => {
+  const earlier = [tx('2026-12-04', -5, 'SOME CAFE')];
+  assert.equal(newOnly(earlier, [tx('2026-12-09', -5, 'SOME CAFE')]).length, 1); // 5 days apart: a new purchase
+  // posted after the new file's first date: still the same purchase
+  assert.equal(newOnly([tx('2026-11-03', -42.5, 'WOOLWORTHS 1234')], [tx('2026-11-05', -42.5, 'WOOLWORTHS 1234 MELBOURNE AUS'), tx('2026-11-18', -30, 'WOOLWORTHS 5678')]).length, 1);
+});

@@ -4,7 +4,7 @@ import { fetchAllPrices, looksLikePublishedCsv, SHEET_COLS } from './prices.js';
 import { buildBackup, encryptBackup, decryptBackup, isEncrypted, readBackup, backupFileName } from './backup.js';
 import { planReminders, DEFAULT_REMINDERS, isOurs } from './reminders.js';
 import { simulate, rateAt, rateChangeCost, sortHistory } from './loans.js';
-import { parseDate, last4, detectKind, parseOfx, parseQif, readCsv, resolveMapping, applyMapping, mappingOk } from './importer.js';
+import { newOnly, parseDate, last4, detectKind, parseOfx, parseQif, readCsv, resolveMapping, applyMapping, mappingOk } from './importer.js';
 import { seedCategory } from './merchants.js';
 import { fyOf, fyLabel, fyList, fySummary, matchParcels, unitsHeld, costHeld, totalDivs, frankingCredit, parseDividendRows, taxCsv } from './tax.js';
 
@@ -182,7 +182,6 @@ function classify(r, c) {
   if (['Rego', 'Personal care', 'Services', 'Other'].includes(seed)) return { cat: seed };
   return { cat: NAB_MAP[r.nabCat] || seed || 'Other' };
 }
-const txKey = (t) => [t.date, t.amt.toFixed(2), t.acct, t.desc, t.bal ?? ''].join('|');
 function isLumpy(t) { return t.lumpy ?? (LUMPY_CATS.has(t.cat) || (SPEND_CATS.includes(t.cat) && -t.amt >= 400)); }
 function summarise(rows) {
   const s = { income: 0, otherIn: 0, rent: 0, carLoan: 0, mortgagePaid: 0, childSupport: 0, shonnyMortgage: 0, shonnyOther: 0, shonnyCard: 0, tagged: 0, spend: {}, lumpy: 0 };
@@ -563,10 +562,12 @@ async function renderSpend() {
       const key = t.desc.replace(/\d{4,}.*$/, '').trim().slice(0, 24);
       await writeDoc('tx/' + m, { rows: S.tx[m], updatedAt: new Date().toISOString() }); await applySummary(m, false);
       renderSpend();
-      const cfgNow = cfg();
-      if (key && !cfgNow.rules.some((r) => r.match === key)) {
-        const t2 = el('div', { class: 'toast', role: 'status' }, `Always file "${key}" as ${pLabel(t.cat)}? `, el('button', { class: 'btn small', type: 'button', text: 'Yes', style: 'margin-left:8px', onclick: async () => { t2.remove(); await saveConfig({ rules: [...cfgNow.rules.filter((r) => r.match !== key), { match: key, cat: t.cat }] }); toast('Rule saved'); } }));
-        $$('.toast').forEach((x) => x.remove()); document.body.append(t2); setTimeout(() => t2.remove(), 6000);
+      // Remember the correction for this shop, so the next import files it the same way. Existing transactions aren't changed.
+      const cfgNow = cfg(); const before = cfgNow.rules.find((r) => r.match === key);
+      if (key.length >= 3 && before?.cat !== t.cat) {
+        await saveConfig({ rules: [...cfgNow.rules.filter((r) => r.match !== key), { match: key, cat: t.cat }] });
+        const t2 = el('div', { class: 'toast', role: 'status' }, `New "${key}" transactions will be filed as ${pLabel(t.cat)} too. `, el('button', { class: 'btn small', type: 'button', text: 'Only this one', style: 'margin-left:8px', onclick: async () => { t2.remove(); await saveConfig({ rules: [...cfg().rules.filter((r) => r.match !== key), ...(before ? [before] : [])] }); toast('Just this transaction changed'); } }));
+        $$('.toast').forEach((x) => x.remove()); document.body.append(t2); setTimeout(() => t2.remove(), 8000);
       }
     });
     const lumpyBtn = SPEND_CATS.includes(t.cat) ? el('button', { class: 'pill' + (isLumpy(t) ? ' ok' : ''), type: 'button', text: isLumpy(t) ? 'One-off' : 'Mark one-off', onclick: async () => { t.lumpy = !isLumpy(t); await writeDoc('tx/' + m, { rows: S.tx[m], updatedAt: new Date().toISOString() }); await applySummary(m, false); renderSpend(); } }) : null;
@@ -1137,20 +1138,21 @@ async function importFiles(files) {
   }
   if (!all.length) return;
   await linkAccounts(groups);
-  const c = cfg(); const byMonth = {};
-  for (const t of all) { const m = t.date.slice(0, 7); (byMonth[m] ||= []).push(t); }
-  let added = 0;
+  const c = cfg();
+  // Only add what's new. Transactions already here keep their category; nothing already imported is changed.
+  const touched = [...new Set(all.map((t) => t.date.slice(0, 7)))];
+  let existing = []; for (const m of new Set(touched.flatMap((m) => [mAdd(m, -1), m, mAdd(m, 1)]))) existing = existing.concat(await loadTx(m));
+  const fresh = []; for (const g of groups) fresh.push(...newOnly(existing.concat(fresh), g.rows));
+  const byMonth = {};
+  for (const t of fresh) { const m = t.date.slice(0, 7); (byMonth[m] ||= []).push({ ...t, cat: classify(t, c).cat }); }
+  const added = fresh.length;
   for (const [m, rows] of Object.entries(byMonth)) {
-    const existing = await loadTx(m);
-    const seen = new Set(existing.map(txKey));
-    const fresh = rows.filter((t) => !seen.has(txKey(t))).map((t) => ({ ...t, cat: classify(t, c).cat }));
-    added += fresh.length;
-    const merged = existing.concat(fresh).sort((a, b) => b.date.localeCompare(a.date));
+    const merged = (await loadTx(m)).concat(rows).sort((a, b) => b.date.localeCompare(a.date));
     S.tx[m] = merged;
     await writeDoc('tx/' + m, { rows: merged, updatedAt: new Date().toISOString() });
-    await applySummary(m, true);
   }
-  const months = Object.keys(byMonth).sort();
+  for (const m of touched) await applySummary(m, true);
+  const months = touched.sort();
   S.month = months[months.length - 1]; fillMonthPick();
   toast(`Imported ${added} new transaction${added === 1 ? '' : 's'} for ${months.map((m) => mLabel(m)).join(', ')}`);
   render(true);
