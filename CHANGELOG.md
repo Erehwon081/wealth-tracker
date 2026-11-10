@@ -4,6 +4,8 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+## 1.0.10 (10 Nov 2026)
+
 ### Changed
 - Each release on GitHub now lists what changed in it, taken from CHANGELOG.md.
 
