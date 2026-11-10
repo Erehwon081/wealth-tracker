@@ -1,0 +1,32 @@
+name: Release notes
+
+# Copies each version's notes from CHANGELOG.md onto its GitHub release,
+# so editing the changelog on main also updates the releases.
+on:
+  push:
+    branches: [main]
+    paths: ['CHANGELOG.md']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Update each release from the changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for tag in $(gh release list --limit 100 --json tagName --jq '.[].tagName'); do
+            node scripts/changelog.mjs notes "$tag" > notes.md
+            if [ ! -s notes.md ]; then echo "$tag: no notes in CHANGELOG.md, left as is"; continue; fi
+            printf '\n\n---\nTo install or update, copy the .apk link below into Chrome on your phone, download it and open it.\n' >> notes.md
+            gh release edit "$tag" --notes-file notes.md
+            echo "$tag: notes updated"
+          done
