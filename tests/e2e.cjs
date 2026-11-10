@@ -316,6 +316,8 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   await ip.click('.tab[data-tab=spend]'); await ip.selectOption('#monthPick', '2026-11'); await ip.waitForTimeout(500);
   await ip.locator('#s-tx .tx', { hasText: 'WOOLWORTHS' }).locator('select').selectOption('Gifts'); await ip.waitForTimeout(500);
   ok((await ip.textContent('.toast')).includes('New "WOOLWORTHS" transactions will be filed as Gifts too'), 'a category change is remembered for that shop straight away');
+  const tb = await ip.evaluate(() => { const t = document.querySelector('.toast'), b = t.querySelector('.btn'); return { same: getComputedStyle(b).color === getComputedStyle(t).color, clear: getComputedStyle(b).backgroundColor === 'rgba(0, 0, 0, 0)' }; });
+  ok(tb.same && tb.clear, 'the toast button uses the toast text colour, so it reads in light and dark');
   // the later download: Woolworths now posted two days later with a longer description and a balance; one new purchase each
   const ofx2 = path.join(tmp, 'everyday2.ofx');
   fs.writeFileSync(ofx2, 'OFXHEADER:100\n<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKACCTFROM><ACCTID>123456789</BANKACCTFROM><BANKTRANLIST>\n<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261105<TRNAMT>-42.50<NAME>WOOLWORTHS 1234 MELBOURNE AUS\n<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20261115<TRNAMT>4820.00<NAME>SALARY ACME\n<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261118<TRNAMT>-30.00<NAME>WOOLWORTHS 5678 SYDNEY\n</BANKTRANLIST><LEDGERBAL><BALAMT>5291.09<DTASOF>20261130</LEDGERBAL></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>');
