@@ -37,7 +37,9 @@ Not done: choosing individual parcels by hand (sales offer oldest first, highest
 - Invest gains a July–June year picker: cash dividends, franking credits, grossed-up income, discounted and non-discounted gains, losses, and a CSV export. Plus an import of dividend history from the user's sheet.
 - Needed well before July 2027.
 
-## 6. Bank import beyond NAB (next; design being agreed with the user before building)
+## 6. Bank import beyond NAB ✅ Built 10 Nov 2026 (steps 1–5; NAB is the only built-in bank profile)
+
+Agreed design: (1) OFX/QFX/QIF reader with balances; (2) guided CSV importer that guesses columns, previews, and remembers each layout by its header row; (3) built-in profiles, currently NAB only because no other banks' samples were available; (4) built-in Australian merchant rules under the user's own rules, partner features optional; (5) first-run setup and bank-neutral wording. Selling plan: a paid app on Google Play, no server. Open: built-in profiles for CBA, ANZ, Westpac, ING, Macquarie and Up once scrubbed sample exports are available; a privacy policy page and a Play listing.
 
 - OFX, QFX and QIF import first: standard formats that carry the account number and closing balance. Check which Australian banks offer them.
 - CSV bank profiles: header signature, column mapping (date, amount or debit/credit, description, balance, account), date format, and a bank-category map. Detected automatically. A "which column is what" screen saves a new profile for any other bank. Profiles are data files, not code.

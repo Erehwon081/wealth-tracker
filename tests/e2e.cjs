@@ -115,7 +115,7 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   const pb = await chromium.launch(); const pp = await pb.newPage(); await pp.setContent(await pdfPage.content()); await pp.pdf({ path: pdfPath }); await pb.close(); await pdfPage.close();
   await p.click('.tab[data-tab=checkin]'); await p.waitForTimeout(300);
   await pick('#v-checkin [data-pick=pdfIn]', pdfPath); await p.waitForTimeout(2500);
-  ok(await p.isVisible('text=Balances from NAB'), 'account list PDF opens with the vendored pdf.js');
+  ok(await p.isVisible('text=Balances from the account list'), 'account list PDF opens with the vendored pdf.js');
   await closeSheets();
 
   // Live prices: mock the published CSV with CORS headers
@@ -137,7 +137,7 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   await p.reload(); await p.waitForTimeout(800); await p.click('.tab[data-tab=home]');
   const offTxt = await p.textContent('#h-nw'); ok(offTxt.startsWith('$') || offTxt.startsWith('−$'), 'app opens offline with data: ' + offTxt);
   await p.click('.tab[data-tab=checkin]'); await pick('#v-checkin [data-pick=pdfIn]', pdfPath); await p.waitForTimeout(2500);
-  ok(await p.isVisible('text=Balances from NAB'), 'PDF import works offline');
+  ok(await p.isVisible('text=Balances from the account list'), 'PDF import works offline');
   await ctx.setOffline(false);
 
   // Android app draws behind the system bars and reports their size as CSS variables
@@ -268,6 +268,58 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   ok(await fp.isVisible('#f-loanbox') && await fp.locator('#f-loanbox input[type=date]').count() === 2 && await fp.inputValue('#f-offset') === 'offset', 'loan details show the rate history and linked offset');
   ok(ferrors.length === 0, 'no page errors in the new screens ' + JSON.stringify(ferrors));
   await fctx.close();
+
+  // First-time setup for one person, then importing files from other banks
+  const ictx = await browser.newContext({ ...devices['Pixel 7'] });
+  const ip = await ictx.newPage(); const ierrors = []; ip.on('pageerror', (e) => ierrors.push(e.message));
+  const ipick = async (selector, files) => { const [fc] = await Promise.all([ip.waitForEvent('filechooser'), ip.click(selector)]); await fc.setFiles(files); };
+  await ip.goto(BASE); await ip.waitForTimeout(600);
+  await ip.click('#h-first button:text-is("Set up")'); await ip.waitForTimeout(300);
+  ok((await ip.textContent('.sheet')).includes('Who is this for?'), 'setup walkthrough opens from the welcome card');
+  await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(800);
+  ok(await ip.evaluate(() => location.hash) === '#checkin' && (await ip.textContent('#c-bal')).includes('Everyday account') && !(await ip.textContent('#c-flow')).includes('Partner'), 'setup creates the chosen accounts for one person, with no partner fields');
+  await ip.click('.tab[data-tab=spend]'); await ip.waitForTimeout(300);
+  ok(!(await ip.textContent('#s-filter')).includes('Partner'), 'a one-person household has no partner filter');
+
+  // OFX: account number and closing balance come from the file
+  const ofx = path.join(tmp, 'everyday.ofx');
+  fs.writeFileSync(ofx, 'OFXHEADER:100\n<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKACCTFROM><ACCTID>123456789</BANKACCTFROM><BANKTRANLIST>\n<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261103<TRNAMT>-42.50<NAME>WOOLWORTHS 1234\n<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20261115<TRNAMT>4820.00<NAME>SALARY ACME\n</BANKTRANLIST><LEDGERBAL><BALAMT>5321.09<DTASOF>20261130</LEDGERBAL></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>');
+  await ip.click('.tab[data-tab=checkin]'); await ip.waitForTimeout(300);
+  await ipick('#v-checkin [data-pick=csvIn]', ofx); await ip.waitForTimeout(500);
+  ok((await ip.textContent('.sheet')).includes('Account ending 6789'), 'a new account number in the file asks to be linked');
+  await ip.selectOption('.sheet select', { label: 'Everyday account' }); await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(900);
+  await ip.selectOption('#monthPick', '2026-11'); await ip.waitForTimeout(400);
+  ok(await ip.inputValue('#c-bal input[aria-label="Everyday account"]') === '5321.09' && await ip.inputValue('#f-income') === '4820', 'OFX fills the closing balance and the pay');
+  await ip.click('.tab[data-tab=spend]'); await ip.waitForTimeout(500);
+  ok((await ip.textContent('#s-tx')).includes('WOOLWORTHS') && (await ip.locator('#s-tx select').first().inputValue()) === 'Groceries', 'built-in merchant rules file Woolworths under Groceries');
+
+  // An unknown CSV: confirm the columns once, and it's remembered
+  const odd = 'When,What,How much,Left\n04/11/2026,NETFLIX.COM,-22.99,5298.10\n05/11/2026,BUNNINGS 123,-61.00,5237.10\n';
+  const oddPath = path.join(tmp, 'other-bank.csv'); fs.writeFileSync(oddPath, odd);
+  await ip.click('.tab[data-tab=checkin]'); await ip.waitForTimeout(300);
+  await ipick('#v-checkin [data-pick=csvIn]', oddPath); await ip.waitForTimeout(500);
+  const chk = await ip.textContent('.sheet');
+  ok(chk.includes('Check the columns') && chk.includes('NETFLIX.COM') && chk.includes('−$22.99'), 'an unknown layout shows its columns and a preview of how it will read');
+  await ip.selectOption('#map-balance', '3'); await ip.fill('#map-name', 'Other bank'); await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(500);
+  ok((await ip.textContent('.sheet')).includes("doesn't say which account"), 'a file with no account number asks which account it is');
+  await ip.selectOption('#ia-acct', { label: 'Everyday account' }); await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(900);
+  await ip.click('.tab[data-tab=spend]'); await ip.waitForTimeout(500);
+  const sp = await ip.textContent('#s-tx');
+  ok(sp.includes('NETFLIX.COM') && sp.includes('BUNNINGS'), 'the confirmed layout imports');
+  fs.writeFileSync(oddPath, 'When,What,How much,Left\n06/11/2026,SPOTIFY,-13.99,5223.11\n');
+  await ip.click('.tab[data-tab=checkin]'); await ip.waitForTimeout(300);
+  await ipick('#v-checkin [data-pick=csvIn]', oddPath); await ip.waitForTimeout(500);
+  ok(!(await ip.locator('.sheet', { hasText: 'Check the columns' }).count()), 'the same layout is remembered and not asked again');
+  if (await ip.locator('.sheet').count()) { await ip.selectOption('#ia-acct', { label: 'Everyday account' }); await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(800); }
+
+  // Category rules: the user's own rule wins over the built-in one
+  await ip.click('#settingsBtn'); await ip.click('text=Edit category rules'); await ip.click('text=Add a rule');
+  await ip.fill('.sheet:last-child [aria-label="Words to look for"]', 'SPOTIFY'); await ip.selectOption('.sheet:last-child [aria-label="Category"]', 'Entertainment');
+  await ip.click('.sheet-bg:last-child .btn.primary'); await ip.waitForTimeout(400);
+  const savedRules = await ip.evaluate(async () => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); }); return new Promise((res) => { const q = db.transaction('config').objectStore('config').get('app'); q.onsuccess = () => res(q.result.rules); }); });
+  ok(JSON.stringify(savedRules) === JSON.stringify([{ match: 'SPOTIFY', cat: 'Entertainment' }]), 'a category rule saves from Settings ' + JSON.stringify(savedRules));
+  ok(ierrors.length === 0, 'no page errors in setup and import ' + JSON.stringify(ierrors));
+  await ictx.close();
 
   // Reminders, as in the Android app: a stand-in for Capacitor's notification plugin records what gets scheduled
   const nctx = await browser.newContext({ ...devices['Pixel 7'] });

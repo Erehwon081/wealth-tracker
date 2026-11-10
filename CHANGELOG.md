@@ -4,6 +4,19 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+### Added
+- Import from any bank, not just NAB. Check-in > Import bank files takes CSV, OFX and QIF downloads from internet banking. OFX files also fill in each account's closing balance.
+- When a CSV is in a layout the app hasn't seen, it shows the first rows and its best guess at which column is the date, description, amount and balance. You check them and see a preview, and the app remembers that layout so it only asks once. NAB's CSV is recognised straight away, as before.
+- New account numbers found in a file ask once to be linked to one of your accounts, added as a new one, or ignored. Files that don't include an account number ask which account they're from.
+- Built-in rules sort common Australian shops and billers into categories (Woolworths, Ampol, Telstra, Netflix and many more), for any bank.
+- Settings > Importing: edit your own category rules (yours always come first), and see or forget remembered file layouts.
+- First-time setup: "Set up" on the welcome screen asks who the app is for and which accounts to track.
+- Household setting: choose "Just me" to hide everything about a partner (partner card, partner transactions, partner share and the buy-out option). Your existing setup stays as "Me and a partner".
+
+### Changed
+- Check-in's import card is now "Fill in from your bank", with "Import bank files" first. The NAB account list PDF button is still there.
+- Wording that assumed NAB now refers to your bank or lender.
+
 ## 1.0.15 (10 Nov 2026)
 
 ### Added
