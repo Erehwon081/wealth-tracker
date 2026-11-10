@@ -4,6 +4,16 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+### Added
+- Replace with a fresh import, in Check-in. Choose bank files and they replace what's saved for those accounts and dates, so the app matches your bank exactly. Copies imported twice disappear, and the categories and tags you set are carried across first. You see a summary and confirm before anything changes.
+- "Check for duplicates" at the bottom of Spending's transactions finds transactions imported more than once and removes the extra copies after you confirm. It keeps the copy you recategorised or tagged.
+
+### Fixed
+- Importing a bank file only adds transactions that are new. Ones already in the app keep the category you gave them, even when a later download formats them a little differently or a pending card purchase has since gone through with a new date.
+
+### Changed
+- Changing a transaction's category now remembers it for that shop straight away, so the next import files it the same way. Tap "Only this one" on the message if it was a one-off. Before, it only stuck if you tapped "Yes" within a few seconds.
+
 ## 1.0.17 (10 Nov 2026)
 
 ### Added

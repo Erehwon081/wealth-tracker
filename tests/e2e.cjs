@@ -312,6 +312,71 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   ok(!(await ip.locator('.sheet', { hasText: 'Check the columns' }).count()), 'the same layout is remembered and not asked again');
   if (await ip.locator('.sheet').count()) { await ip.selectOption('#ia-acct', { label: 'Everyday account' }); await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(800); }
 
+  // Re-importing keeps corrections: change a category, then import a later download of the same account
+  await ip.click('.tab[data-tab=spend]'); await ip.selectOption('#monthPick', '2026-11'); await ip.waitForTimeout(500);
+  await ip.locator('#s-tx .tx', { hasText: 'WOOLWORTHS' }).locator('select').selectOption('Gifts'); await ip.waitForTimeout(500);
+  ok((await ip.textContent('.toast')).includes('New "WOOLWORTHS" transactions will be filed as Gifts too'), 'a category change is remembered for that shop straight away');
+  // the later download: Woolworths now posted two days later with a longer description and a balance; one new purchase each
+  const ofx2 = path.join(tmp, 'everyday2.ofx');
+  fs.writeFileSync(ofx2, 'OFXHEADER:100\n<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKACCTFROM><ACCTID>123456789</BANKACCTFROM><BANKTRANLIST>\n<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261105<TRNAMT>-42.50<NAME>WOOLWORTHS 1234 MELBOURNE AUS\n<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20261115<TRNAMT>4820.00<NAME>SALARY ACME\n<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261118<TRNAMT>-30.00<NAME>WOOLWORTHS 5678 SYDNEY\n</BANKTRANLIST><LEDGERBAL><BALAMT>5291.09<DTASOF>20261130</LEDGERBAL></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>');
+  await ip.click('.tab[data-tab=checkin]'); await ip.waitForTimeout(300);
+  await ipick('#v-checkin [data-pick=csvIn]', ofx2); await ip.waitForTimeout(900);
+  ok((await ip.textContent('.toast')).includes('Imported 1 new transaction'), 'only the genuinely new transaction is imported');
+  await ip.click('.tab[data-tab=spend]'); await ip.selectOption('#monthPick', '2026-11'); await ip.waitForTimeout(500);
+  const wool = await ip.locator('#s-tx .tx', { hasText: 'WOOLWORTHS' }).evaluateAll((els) => els.map((e) => e.querySelector('select').value));
+  ok(JSON.stringify(wool) === '["Gifts","Gifts"]', `the earlier correction is kept and the new Woolworths purchase follows it (${wool})`);
+  await ip.click('#s-filter button:text-is("All")'); await ip.waitForTimeout(300);
+  await ip.locator('#s-tx .tx', { hasText: 'SALARY' }).locator('select').selectOption('Money in'); await ip.waitForTimeout(400);
+  await ip.click('.toast >> text=Only this one'); await ip.waitForTimeout(400);
+  const rulesNow = await ip.evaluate(async () => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); }); return new Promise((res) => { const q = db.transaction('config').objectStore('config').get('app'); q.onsuccess = () => res(q.result.rules.map((x) => x.match)); }); });
+  ok(JSON.stringify(rulesNow) === '["WOOLWORTHS"]', `"Only this one" doesn't keep a rule (${rulesNow})`);
+
+  // Duplicates left by older imports: the same transfer saved twice (different balances), one copy recategorised
+  await ip.evaluate(async () => {
+    const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); });
+    const rows = await new Promise((res) => { const q = db.transaction('tx').objectStore('tx').get('2026-11'); q.onsuccess = () => res(q.result); });
+    const base = { date: '2026-11-06', amt: -2290, desc: 'ONLINE W3624318944 Linked Acc Trns', merchant: '', acct: '6789', type: '', nabCat: '' };
+    rows.push({ ...base, bal: 100, cat: 'Transfer' }, { ...base, bal: 200, cat: 'Rent', userCat: true }, { ...base, date: '2026-11-08', amt: -200, desc: 'ONLINE Y3863318977 Linked Acc', bal: 1, cat: 'Transfer' }, { ...base, date: '2026-11-09', amt: -200, desc: 'ONLINE Y3863318977 Linked Acc', bal: 2, cat: 'Transfer' });
+    const t = db.transaction('tx', 'readwrite'); t.objectStore('tx').put(rows, '2026-11'); await new Promise((res) => { t.oncomplete = res; });
+  });
+  await ip.reload(); await ip.waitForTimeout(800);
+  await ip.click('.tab[data-tab=spend]'); await ip.selectOption('#monthPick', '2026-11'); await ip.waitForTimeout(500);
+  const countBefore = await ip.evaluate(() => document.querySelector('#s-count').textContent);
+  await ip.click('#s-dupes'); await ip.waitForTimeout(500);
+  const dupText = await ip.textContent('.sheet');
+  ok(dupText.includes('2 transactions appear more than once') && dupText.includes('keeps Rent') && dupText.includes('8 Nov, 9 Nov'), 'duplicates are found, keeping the recategorised copy');
+  await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(700);
+  await ip.click('#s-filter button:text-is("All")'); await ip.waitForTimeout(300);
+  const leftover = await ip.evaluate(() => [...document.querySelectorAll('#s-tx .tx')].filter((e) => /W3624318944|Y3863318977/.test(e.textContent)).map((e) => e.querySelector('select').value));
+  ok(JSON.stringify(leftover.sort()) === '["Rent","Transfer"]', `one copy of each is left, with the user's category (${leftover}; count was ${countBefore})`);
+  await ip.click('#s-dupes'); await ip.waitForTimeout(400);
+  ok((await ip.textContent('.toast')).includes('No duplicates found'), 'running it again finds nothing');
+
+  // Replace with a fresh import: duplicates go, recategorised and tagged transactions keep their settings
+  await ip.evaluate(async () => {
+    const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); });
+    const rows = await new Promise((res) => { const q = db.transaction('tx').objectStore('tx').get('2026-11'); q.onsuccess = () => res(q.result); });
+    const base = { merchant: '', acct: '6789', type: '', nabCat: '' };
+    rows.push({ ...base, date: '2026-11-20', amt: -64.1, desc: 'ONLINE Z1112223334 Linked Acc', bal: 10, cat: 'Transfer' }, { ...base, date: '2026-11-20', amt: -64.1, desc: 'ONLINE Z1112223334 Linked Acc', bal: 11, cat: 'Gifts', userCat: true, partner: true });
+    const t = db.transaction('tx', 'readwrite'); t.objectStore('tx').put(rows, '2026-11'); await new Promise((res) => { t.oncomplete = res; });
+  });
+  await ip.reload(); await ip.waitForTimeout(800);
+  const fresh = path.join(tmp, 'fresh.ofx');
+  fs.writeFileSync(fresh, 'OFXHEADER:100\n<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKACCTFROM><ACCTID>123456789</BANKACCTFROM><BANKTRANLIST>\n'
+    + '<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261103<TRNAMT>-42.50<NAME>WOOLWORTHS 1234\n<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20261115<TRNAMT>4820.00<NAME>SALARY ACME\n'
+    + '<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261118<TRNAMT>-30.00<NAME>WOOLWORTHS 5678 SYDNEY\n<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261120<TRNAMT>-64.10<NAME>ONLINE Z1112223334 LINKED ACC\n'
+    + '<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261121<TRNAMT>-12.00<NAME>BRAND NEW SHOP\n</BANKTRANLIST><LEDGERBAL><BALAMT>5000.00<DTASOF>20261130</LEDGERBAL></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>');
+  await ip.click('.tab[data-tab=checkin]'); await ip.waitForTimeout(300);
+  await ipick('#v-checkin [data-pick=replaceIn]', fresh); await ip.waitForTimeout(700);
+  const rep = await ip.textContent('.sheet');
+  ok(rep.includes('Replace with a fresh import?') && rep.includes('Everyday account: 3 Nov 2026 to 21 Nov 2026') && rep.includes('with the 5 in your file'), 'a fresh import shows what it will replace before doing anything ' + rep.slice(0, 160));
+  await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(900);
+  await ip.click('.tab[data-tab=spend]'); await ip.selectOption('#monthPick', '2026-11'); await ip.waitForTimeout(400);
+  await ip.click('#s-filter button:text-is("All")'); await ip.waitForTimeout(300);
+  const after6789 = await ip.evaluate(() => [...document.querySelectorAll('#s-tx .tx')].filter((e) => e.textContent.includes('…6789')).map((e) => e.querySelector('.desc').textContent.slice(0, 14) + '=' + e.querySelector('select').value + (e.textContent.includes("Mark Sam's") || !e.textContent.includes("'s") ? '' : '+tag')));
+  ok(after6789.length === 5, `the account now matches the file exactly, with no duplicates (${after6789.length}: ${after6789.join(', ')})`);
+  ok(after6789.some((x) => x.startsWith('ONLINE Z111222') && x.includes('=Gifts')) && after6789.filter((x) => x.startsWith('WOOLWORTHS')).every((x) => x.includes('=Gifts')), 'recategorised transactions keep their category through the replace');
+
   // Category rules: the user's own rule wins over the built-in one
   await ip.click('#settingsBtn'); await ip.click('text=Edit category rules'); await ip.click('text=Add a rule');
   await ip.fill('.sheet:last-child [aria-label="Words to look for"]', 'SPOTIFY'); await ip.selectOption('.sheet:last-child [aria-label="Category"]', 'Entertainment');

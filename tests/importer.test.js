@@ -72,3 +72,78 @@ test('starter merchant rules', () => {
   for (const [d, c] of [['WOOLWORTHS 1234 MELBOURNE', 'Groceries'], ['COLES EXPRESS 1234', 'Fuel'], ['UBER *EATS SYDNEY', 'Eating out'], ['UBER *TRIP', 'Transport'], ['NETFLIX.COM', 'Subscriptions'], ['Bunnings 123', 'Home & furniture'], ['VICROADS REGO', 'Rego'], ['AGL SALES PTY', 'Bills']]) assert.equal(seedCategory(d), c, d);
   assert.equal(seedCategory('SOMETHING UNKNOWN PTY LTD'), null);
 });
+
+import { newOnly } from '../www/js/importer.js';
+const tx = (date, amt, desc, extra = {}) => ({ date, amt, desc, acct: '2222', bal: null, ...extra });
+
+test('re-importing adds only what is new, and ignores formatting and balance differences', () => {
+  const existing = [tx('2026-12-03', -42.5, 'WOOLWORTHS 1234 MELBOURNE', { cat: 'Gifts' }), tx('2026-12-04', -18, 'SOME CAFE')];
+  const incoming = [tx('2026-12-03', -42.5, 'Woolworths  1234, Melbourne', { bal: 999 }), tx('2026-12-04', -18, 'SOME CAFE'), tx('2026-12-05', -61, 'KMART')];
+  assert.deepEqual(newOnly(existing, incoming).map((t) => t.desc), ['KMART']);
+});
+
+test('two identical purchases on one day both import, but only once', () => {
+  const two = [tx('2026-12-04', -5, 'CAFE'), tx('2026-12-04', -5, 'CAFE')];
+  assert.equal(newOnly([], two).length, 2);
+  assert.equal(newOnly([two[0]], two).length, 1);
+  assert.equal(newOnly(two, two).length, 0);
+});
+
+test('a pending purchase that went through with a new date or longer description is the same transaction', () => {
+  const pending = [tx('2026-11-30', -42.5, 'WOOLWORTHS 1234')];
+  const posted = [tx('2026-11-29', -10, 'OTHER'), tx('2026-12-02', -42.5, 'WOOLWORTHS 1234 MELBOURNE AUS')];
+  assert.equal(newOnly(pending, posted).length, 1); // only OTHER is new
+  // different amount, different shop, or too far apart: new
+  assert.equal(newOnly(pending, [tx('2026-11-29', -1, 'X'), tx('2026-12-02', -42.6, 'WOOLWORTHS 1234')]).length, 2);
+  assert.equal(newOnly(pending, [tx('2026-11-29', -1, 'X'), tx('2026-12-02', -42.5, 'COLES 99')]).length, 2);
+  assert.equal(newOnly(pending, [tx('2026-11-20', -1, 'X'), tx('2026-12-06', -42.5, 'WOOLWORTHS 1234')]).length, 2);
+});
+
+test("an older purchase outside the new file's dates never swallows a genuine new one", () => {
+  const earlier = [tx('2026-12-04', -5, 'SOME CAFE')];
+  assert.equal(newOnly(earlier, [tx('2026-12-09', -5, 'SOME CAFE')]).length, 1); // 5 days apart: a new purchase
+  // posted after the new file's first date: still the same purchase
+  assert.equal(newOnly([tx('2026-11-03', -42.5, 'WOOLWORTHS 1234')], [tx('2026-11-05', -42.5, 'WOOLWORTHS 1234 MELBOURNE AUS'), tx('2026-11-18', -30, 'WOOLWORTHS 5678')]).length, 1);
+});
+
+import { findDuplicates } from '../www/js/importer.js';
+test('finds copies of the same transaction and keeps the one the user changed', () => {
+  const a1 = tx('2026-11-06', -2290, 'ONLINE W3624318944 Linked Acc', { acct: '4049', cat: 'Transfer' });
+  const a2 = tx('2026-11-06', -2290, 'ONLINE  W3624318944 LINKED ACC', { acct: '4049', cat: 'Shopping', userCat: true });
+  const b1 = tx('2026-11-08', -200, 'ONLINE Y3863318977 Linked Acc', { acct: '4417' });
+  const b2 = tx('2026-11-09', -200, 'ONLINE Y3863318977 Linked Acc', { acct: '4417' });
+  const other = tx('2026-11-06', -2290, 'ONLINE W3624318944 Linked Acc', { acct: '9999' }); // different account
+  const far = tx('2026-11-20', -200, 'ONLINE Y3863318977 Linked Acc', { acct: '4417' });  // too far apart
+  const g = findDuplicates([a1, b1, a2, b2, other, far], (t) => (t.userCat ? 2 : 0));
+  assert.equal(g.length, 2);
+  assert.equal(g.find((x) => x.keep.acct === '4049').keep, a2);
+  assert.deepEqual(g.find((x) => x.keep.acct === '4417').remove, [b2]);
+  assert.deepEqual(findDuplicates([a1, other, far]), []);
+});
+
+import { planReplace } from '../www/js/importer.js';
+test('a fresh import replaces saved transactions for the same account and dates, keeping the user\'s settings', () => {
+  const s = (date, amt, desc, extra = {}) => tx(date, amt, desc, { acct: '4049', ...extra });
+  const saved = [
+    s('2026-11-06', -2290, 'ONLINE W3624318944 Linked Acc', { cat: 'Transfer', bal: 1 }),
+    s('2026-11-06', -2290, 'ONLINE W3624318944 Linked Acc', { cat: 'Rent', userCat: true, bal: 2 }), // a duplicate, recategorised
+    s('2026-11-03', -42.5, 'WOOLWORTHS 1234', { cat: 'Gifts', userCat: true, partner: true }),          // pending; posts on the 5th
+    s('2026-11-10', -9, 'GONE FROM THE BANK', { cat: 'Other' }),                                        // not in the file: removed
+    s('2026-10-01', -5, 'EARLIER', { cat: 'Other' }),                                                   // before the file: untouched
+    tx('2026-11-06', -1, 'OTHER ACCOUNT', { acct: '9999' }),                                             // other account: untouched
+  ];
+  const incoming = [{ acct: '4049', rows: [s('2026-11-05', -42.5, 'WOOLWORTHS 1234 MELBOURNE AUS'), s('2026-11-06', -2290, 'ONLINE W3624318944 LINKED ACC'), s('2026-11-12', -7, 'NEW ONE')] }];
+  const p = planReplace(saved, incoming, (t) => (t.userCat ? 4 : 0) + (t.partner ? 2 : 0));
+  assert.deepEqual(p.replace.map((t) => t.desc).sort(), ['GONE FROM THE BANK', 'ONLINE W3624318944 Linked Acc', 'ONLINE W3624318944 Linked Acc', 'WOOLWORTHS 1234']);
+  assert.equal(p.rows.length, 3); assert.equal(p.carried, 2);
+  const by = Object.fromEntries(p.rows.map((t) => [t.desc.slice(0, 6), t]));
+  assert.equal(by.ONLINE.cat, 'Rent'); assert.ok(by.ONLINE.userCat);
+  assert.equal(by.WOOLWO.cat, 'Gifts'); assert.ok(by.WOOLWO.partner); assert.equal(by.WOOLWO.date, '2026-11-05');
+  assert.equal(by['NEW ON'].cat, undefined); // left for the app to categorise
+});
+
+test('two genuine identical purchases both survive a fresh import', () => {
+  const c = (d) => tx(d, -5, 'CAFE', { cat: 'Cafes' });
+  const p = planReplace([c('2026-11-04'), c('2026-11-04')], [{ acct: '2222', rows: [c('2026-11-04'), c('2026-11-04')] }]);
+  assert.equal(p.rows.length, 2); assert.equal(p.replace.length, 2); assert.equal(p.carried, 2);
+});

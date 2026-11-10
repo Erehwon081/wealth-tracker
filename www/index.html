@@ -27,6 +27,7 @@
 <main class="wrap" id="app">
   <input type="file" id="pdfIn" accept="application/pdf,.pdf" hidden>
   <input type="file" id="csvIn" multiple hidden>
+  <input type="file" id="replaceIn" multiple hidden>
   <input type="file" id="divIn" accept=".csv,text/csv,text/comma-separated-values,application/csv,application/vnd.ms-excel,text/plain" hidden>
   <input type="file" id="restoreIn" accept=".json,application/json,text/plain,application/octet-stream" hidden>
 
@@ -56,6 +57,7 @@
       <h2>Fill in from your bank</h2>
       <p class="cap muted">Download your transactions from internet banking as CSV, OFX or QIF and import them here. They fill spending, pay, rent and the mortgage, plus closing balances when the file includes them. NAB customers can also upload the Accounts list PDF to fill every balance, loans included.</p>
       <div class="btns"><button class="btn small primary" type="button" data-pick="csvIn">Import bank files</button><button class="btn small" type="button" data-pick="pdfIn">NAB account list PDF</button></div>
+      <p class="cap muted">To redo a period, <button class="linkbtn" type="button" data-pick="replaceIn">replace with a fresh import</button>: the files take the place of what's saved for those accounts and dates, keeping your categories and tags.</p>
     </div>
     <div class="card"><h2>Balances at month end</h2><div id="c-bal"></div><button class="btn small" id="c-addacct" type="button">Add an account or loan</button></div>
     <div class="card"><h2>Money in and out</h2><div id="c-flow"></div></div>
@@ -75,6 +77,7 @@
       <div class="txtools"><input id="s-search" class="plain" type="search" placeholder="Search merchant or description" aria-label="Search transactions" autocomplete="off"><button class="btn small" id="s-sort" type="button">Newest first</button></div>
       <div id="s-active"></div>
       <div id="s-tx"></div>
+      <div class="btns"><button class="btn small" id="s-dupes" type="button">Check for duplicates</button></div>
     </div>
   </section>
 

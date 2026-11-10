@@ -43,6 +43,13 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 - **Partner features are on unless `config.hasPartner === false`** (only the setup walkthrough or the Household setting sets that), so existing data is unchanged.
 - **The file picker has no type filter** because Android greys out OFX and QIF files it has no type for.
 
+### Re-importing and corrections
+- **`newOnly()` in `importer.js` decides what's new.** First exact matches on date, amount, account and normalised description (balance ignored, counted so identical same-day purchases both import). Then pending→posted matches: same account and amount, same first 6 description characters, within 3 days, and inside the new file's date range widened by 3 days. Existing transactions are never changed by an import, so their categories stay.
+- **Duplicates from older imports** (the old match included the running balance, which differed between NAB downloads) are cleaned up by Spending > Check for duplicates: `findDuplicates()` groups same account, amount and normalised description within 3 days; the user confirms; the kept copy is the one with `userCat` (set whenever a category is changed), tags, or a non-default category.
+- **Replace with a fresh import** (`planReplace()`): for each account in the files, every saved transaction between the file's first and last date is replaced by the file's rows. Category, `userCat`, `lumpy` and `partner` are copied from the matching saved copy first (exact match; if saved twice, the highest-scoring copy), then pending→posted matches, including saved copies up to 3 days outside the dates. Recommended over Check for duplicates for cleaning up, because the result matches the bank exactly; Check for duplicates stays for months the bank no longer offers.
+- **Known trade-off:** two identical purchases (same shop, same amount) within 3 days of each other, straddling the start of a download, count as one.
+- **A category change saves a rule for that shop straight away** (key: description up to the first run of 4+ digits, 24 characters), with "Only this one" to undo it. The old 6-second "Always file?" prompt meant corrections were easily lost.
+
 ### Loans, ledger and tax (roadmap 3–5)
 - **Pure maths in `www/js/loans.js` and `www/js/tax.js`, unit tested.** `simulate()` runs loans month by month; extras go to the highest-rate loan first; a shared offset is counted once. Freed-up repayments are not rolled into other loans, in either the baseline or the scenario.
 - **Loan fields on the account:** `rateType`, `fixedUntil`, `offsetId`, `rateHistory [{date, rate}]` (first entry is the starting rate). `a.rate` stays the current rate; history is only for past months.
@@ -71,6 +78,8 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 - **9 Nov 2026**: Built the PWA from the artifact, deployed to Pages. Partner tagging, expected pay, the new look, motion and swipe, the first Android releases (1.0.4, 1.0.6, 1.0.8).
 - **10 Nov 2026**: Release notes from the changelog (1.0.10). Added `CLAUDE.md` and this file. The user plans one Claude Code chat per release, grouped in a Claude project.
 - **10 Nov 2026**: The user confirmed on their phone (1.0.13) that reminders work: the permission prompt, delivery, the status bar icon and tap-to-open Check-in. Chart dragging no longer brings up the copy menu, and the Spending and chart fixes are good. Not yet checked: delivery after a phone restart.
+- **10 Nov 2026**: Added Replace with a fresh import and Check for duplicates to clean up copies left by older imports (the user had duplicate transfers).
+- **10 Nov 2026**: Fixed re-imports losing corrections: looser duplicate matching (incl. pending→posted) and corrections remembered automatically.
 - **10 Nov 2026**: Built roadmap item 6 steps 1–5 (any-bank import, merchant rules, optional partner, setup, wording). NAB is the only built-in profile; the user had no other banks' exports.
 - **10 Nov 2026**: The user cancelled roadmap item 2 (bills and set-asides). Items 1, 3, 4 and 5 are done. Item 6 is the only one left.
 - **10 Nov 2026**: Built roadmap items 3, 4 and 5 (mortgage what-if, house ledger, tax year) in one go, with sample data extended to show them.

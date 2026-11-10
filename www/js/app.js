@@ -4,7 +4,7 @@ import { fetchAllPrices, looksLikePublishedCsv, SHEET_COLS } from './prices.js';
 import { buildBackup, encryptBackup, decryptBackup, isEncrypted, readBackup, backupFileName } from './backup.js';
 import { planReminders, DEFAULT_REMINDERS, isOurs } from './reminders.js';
 import { simulate, rateAt, rateChangeCost, sortHistory } from './loans.js';
-import { parseDate, last4, detectKind, parseOfx, parseQif, readCsv, resolveMapping, applyMapping, mappingOk } from './importer.js';
+import { newOnly, findDuplicates, planReplace, parseDate, last4, detectKind, parseOfx, parseQif, readCsv, resolveMapping, applyMapping, mappingOk } from './importer.js';
 import { seedCategory } from './merchants.js';
 import { fyOf, fyLabel, fyList, fySummary, matchParcels, unitsHeld, costHeld, totalDivs, frankingCredit, parseDividendRows, taxCsv } from './tax.js';
 
@@ -182,7 +182,6 @@ function classify(r, c) {
   if (['Rego', 'Personal care', 'Services', 'Other'].includes(seed)) return { cat: seed };
   return { cat: NAB_MAP[r.nabCat] || seed || 'Other' };
 }
-const txKey = (t) => [t.date, t.amt.toFixed(2), t.acct, t.desc, t.bal ?? ''].join('|');
 function isLumpy(t) { return t.lumpy ?? (LUMPY_CATS.has(t.cat) || (SPEND_CATS.includes(t.cat) && -t.amt >= 400)); }
 function summarise(rows) {
   const s = { income: 0, otherIn: 0, rent: 0, carLoan: 0, mortgagePaid: 0, childSupport: 0, shonnyMortgage: 0, shonnyOther: 0, shonnyCard: 0, tagged: 0, spend: {}, lumpy: 0 };
@@ -559,14 +558,16 @@ async function renderSpend() {
   for (const t of show.slice(0, 400)) {
     const sel = el('select', { 'aria-label': 'Category for ' + t.desc }, [...ALL_CATS.filter((k) => partnerOn() || !/Partner/.test(k) || k === t.cat), ...(ALL_CATS.includes(t.cat) ? [] : [t.cat])].map((k) => el('option', { value: k, selected: k === t.cat }, pLabel(k))));
     sel.addEventListener('change', async () => {
-      t.cat = sel.value; t.lumpy = undefined;
+      t.cat = sel.value; t.lumpy = undefined; t.userCat = true; // marks the copy to keep if it's ever found twice
       const key = t.desc.replace(/\d{4,}.*$/, '').trim().slice(0, 24);
       await writeDoc('tx/' + m, { rows: S.tx[m], updatedAt: new Date().toISOString() }); await applySummary(m, false);
       renderSpend();
-      const cfgNow = cfg();
-      if (key && !cfgNow.rules.some((r) => r.match === key)) {
-        const t2 = el('div', { class: 'toast', role: 'status' }, `Always file "${key}" as ${pLabel(t.cat)}? `, el('button', { class: 'btn small', type: 'button', text: 'Yes', style: 'margin-left:8px', onclick: async () => { t2.remove(); await saveConfig({ rules: [...cfgNow.rules.filter((r) => r.match !== key), { match: key, cat: t.cat }] }); toast('Rule saved'); } }));
-        $$('.toast').forEach((x) => x.remove()); document.body.append(t2); setTimeout(() => t2.remove(), 6000);
+      // Remember the correction for this shop, so the next import files it the same way. Existing transactions aren't changed.
+      const cfgNow = cfg(); const before = cfgNow.rules.find((r) => r.match === key);
+      if (key.length >= 3 && before?.cat !== t.cat) {
+        await saveConfig({ rules: [...cfgNow.rules.filter((r) => r.match !== key), { match: key, cat: t.cat }] });
+        const t2 = el('div', { class: 'toast', role: 'status' }, `New "${key}" transactions will be filed as ${pLabel(t.cat)} too. `, el('button', { class: 'btn small', type: 'button', text: 'Only this one', style: 'margin-left:8px', onclick: async () => { t2.remove(); await saveConfig({ rules: [...cfg().rules.filter((r) => r.match !== key), ...(before ? [before] : [])] }); toast('Just this transaction changed'); } }));
+        $$('.toast').forEach((x) => x.remove()); document.body.append(t2); setTimeout(() => t2.remove(), 8000);
       }
     });
     const lumpyBtn = SPEND_CATS.includes(t.cat) ? el('button', { class: 'pill' + (isLumpy(t) ? ' ok' : ''), type: 'button', text: isLumpy(t) ? 'One-off' : 'Mark one-off', onclick: async () => { t.lumpy = !isLumpy(t); await writeDoc('tx/' + m, { rows: S.tx[m], updatedAt: new Date().toISOString() }); await applySummary(m, false); renderSpend(); } }) : null;
@@ -1123,7 +1124,8 @@ async function readBankFile(f) {
   const by = new Map(); for (const t of applyMapping(rows, r.mapping)) { if (!by.has(t.acct)) by.set(t.acct, []); by.get(t.acct).push(t); }
   return [...by.entries()].map(([acct, list]) => { const withBal = list.filter((t) => t.bal != null); const newest = withBal.length ? withBal.reduce((a, b) => (b.date > a.date ? b : a)) : null; return { acct, kind: 'cash', balance: newest ? newest.bal : null, rows: list }; });
 }
-async function importFiles(files) {
+// Reads the chosen files into groups of transactions per account, asking about layouts and accounts as needed.
+async function readFiles(files) {
   let all = []; const groups = [];
   for (const f of files) {
     let gs; try { gs = await readBankFile(f); } catch { gs = []; }
@@ -1135,25 +1137,86 @@ async function importFiles(files) {
       groups.push(g); all = all.concat(g.rows);
     }
   }
-  if (!all.length) return;
+  if (!all.length) return null;
   await linkAccounts(groups);
-  const c = cfg(); const byMonth = {};
-  for (const t of all) { const m = t.date.slice(0, 7); (byMonth[m] ||= []).push(t); }
-  let added = 0;
+  return { groups, all };
+}
+async function importFiles(files) {
+  const got = await readFiles(files); if (!got) return;
+  const { groups, all } = got;
+  const c = cfg();
+  // Only add what's new. Transactions already here keep their category; nothing already imported is changed.
+  const touched = [...new Set(all.map((t) => t.date.slice(0, 7)))];
+  let existing = []; for (const m of new Set(touched.flatMap((m) => [mAdd(m, -1), m, mAdd(m, 1)]))) existing = existing.concat(await loadTx(m));
+  const fresh = []; for (const g of groups) fresh.push(...newOnly(existing.concat(fresh), g.rows));
+  const byMonth = {};
+  for (const t of fresh) { const m = t.date.slice(0, 7); (byMonth[m] ||= []).push({ ...t, cat: classify(t, c).cat }); }
+  const added = fresh.length;
   for (const [m, rows] of Object.entries(byMonth)) {
-    const existing = await loadTx(m);
-    const seen = new Set(existing.map(txKey));
-    const fresh = rows.filter((t) => !seen.has(txKey(t))).map((t) => ({ ...t, cat: classify(t, c).cat }));
-    added += fresh.length;
-    const merged = existing.concat(fresh).sort((a, b) => b.date.localeCompare(a.date));
+    const merged = (await loadTx(m)).concat(rows).sort((a, b) => b.date.localeCompare(a.date));
     S.tx[m] = merged;
     await writeDoc('tx/' + m, { rows: merged, updatedAt: new Date().toISOString() });
-    await applySummary(m, true);
   }
-  const months = Object.keys(byMonth).sort();
+  for (const m of touched) await applySummary(m, true);
+  const months = touched.sort();
   S.month = months[months.length - 1]; fillMonthPick();
   toast(`Imported ${added} new transaction${added === 1 ? '' : 's'} for ${months.map((m) => mLabel(m)).join(', ')}`);
   render(true);
+}
+
+// ---------- duplicates ----------
+// Prefer the copy the user changed: recategorised, tagged, or on a category other than the one an import would give it.
+const keepScore = (t) => (t.userCat ? 4 : 0) + (t.partner || t.lumpy !== undefined ? 2 : 0) + (t.cat !== classify(t, cfg()).cat ? 1 : 0);
+async function loadAllTx() { try { const all = await store.getAll('tx'); for (const [k, rows] of Object.entries(all)) if (!S.tx[k] && Array.isArray(rows)) { fixRows(rows); S.tx[k] = rows; } } catch {} }
+// The files become the record for their accounts and dates: saved transactions there are replaced, keeping your categories and tags.
+async function replaceFiles(files) {
+  const got = await readFiles(files); if (!got) return;
+  await loadAllTx();
+  const plan = planReplace(Object.values(S.tx).flat(), got.groups, keepScore);
+  const c = cfg(); const rows = plan.rows.map((t) => (t.cat ? t : { ...t, cat: classify(t, c).cat }));
+  const fmt = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+  const spans = got.groups.map((g) => { const ds = g.rows.map((t) => t.date).sort(); const a = acctFor(g.acct); return `${a ? a.name : '…' + g.acct}: ${fmt(ds[0])} to ${fmt(ds[ds.length - 1])}`; });
+  const gone = plan.replace.length - plan.carried;
+  const body = el('div', { class: 'card' },
+    el('p', { text: `This replaces ${plan.replace.length} saved transaction${plan.replace.length === 1 ? '' : 's'} with the ${rows.length} in your file${files.length === 1 ? '' : 's'}.` }),
+    el('div', { class: 'list' }, spans.map((x) => el('div', { class: 'row' }, el('span', { class: 'cap', text: x })))),
+    el('p', { class: 'cap muted', text: `${plan.carried} keep the category and tags you had.${gone > 0 ? ` ${gone} saved transaction${gone === 1 ? ' isn\'t' : 's aren\'t'} in the files (usually copies imported twice) and will be removed.` : ''} Transactions outside these accounts and dates aren't touched.` }),
+    el('p', { class: 'cap muted', text: 'Make a backup first if you want to be able to undo this.' }));
+  sheet('Replace with a fresh import?', body, async () => {
+    const remove = new Set(plan.replace); const byMonth = {};
+    for (const t of rows) (byMonth[t.date.slice(0, 7)] ||= []).push(t);
+    const months = new Set([...plan.replace.map((t) => t.date.slice(0, 7)), ...Object.keys(byMonth)]);
+    for (const m of months) {
+      const kept = (S.tx[m] || []).filter((t) => !remove.has(t));
+      S.tx[m] = kept.concat(byMonth[m] || []).sort((a, b) => b.date.localeCompare(a.date));
+      await writeDoc('tx/' + m, { rows: S.tx[m] }); await applySummary(m, true);
+    }
+    const latest = [...months].sort().pop(); if (latest) { S.month = latest; fillMonthPick(); }
+    render(true); toast(`Replaced. ${rows.length} transactions, ${plan.carried} with your categories kept.`);
+  }, 'Replace');
+}
+async function duplicatesSheet() {
+  await loadAllTx();
+  const groups = findDuplicates(Object.values(S.tx).flat(), keepScore);
+  if (!groups.length) { toast('No duplicates found'); return; }
+  const when = (t) => `${+t.date.slice(8)} ${MONTHS[+t.date.slice(5, 7) - 1]}`;
+  const body = el('div', { class: 'card' },
+    el('p', { class: 'cap muted', text: `${groups.length} transaction${groups.length === 1 ? '' : 's'} appear more than once: same account, amount and description, within 3 days. Ticked ones keep one copy, the one you changed if you did. Untick any that really happened twice.` }),
+    ...groups.map((g, i) => el('label', { style: 'display:flex;gap:10px;align-items:flex-start;padding-block:9px;border-top:1px solid var(--line)' },
+      el('input', { type: 'checkbox', id: 'dup-' + i, checked: true, style: 'margin-top:4px' }),
+      el('span', { style: 'flex:1;min-width:0' }, el('span', { class: 'row' }, el('span', { text: g.keep.merchant || g.keep.desc }), el('span', { class: 'num', text: $2(g.keep.amt) })),
+        el('small', { class: 'cap muted', style: 'display:block', text: `${g.remove.length + 1} copies · ${[g.keep, ...g.remove].map(when).join(', ')}${g.keep.acct ? ' · …' + g.keep.acct : ''} · keeps ${pLabel(g.keep.cat)}` })))));
+  sheet('Duplicates', body, async () => {
+    const chosen = groups.filter((_, i) => $('#dup-' + i).checked); if (!chosen.length) return;
+    const remove = new Set();
+    for (const g of chosen) for (const r of g.remove) { remove.add(r); if (r.partner && !g.keep.partner) g.keep.partner = true; }
+    for (const [m, rows] of Object.entries(S.tx)) {
+      if (!rows.some((t) => remove.has(t))) continue;
+      S.tx[m] = rows.filter((t) => !remove.has(t));
+      await writeDoc('tx/' + m, { rows: S.tx[m] }); await applySummary(m, false);
+    }
+    render(true); toast(`Removed ${remove.size} extra cop${remove.size === 1 ? 'y' : 'ies'}`);
+  }, 'Remove extra copies');
 }
 
 // ---------- category rules and first-time setup ----------
@@ -1501,7 +1564,9 @@ document.addEventListener('click', (e) => { if (e.target.closest?.('button.pill,
 $('#monthPick').addEventListener('change', (e) => { S.month = e.target.value; S.draft = null; S.catFilter = null; render(true); });
 $('#pdfIn').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importAccountPdf(f); });
 let sq; $('#s-search').addEventListener('input', (e) => { clearTimeout(sq); sq = setTimeout(() => { S.search = e.target.value; renderSpend(); }, 180); });
+$('#s-dupes').addEventListener('click', duplicatesSheet);
 $('#s-sort').addEventListener('click', () => { S.sort = S.sort === 'amount' ? 'date' : 'amount'; renderSpend(); });
+$('#replaceIn').addEventListener('change', (e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) replaceFiles(fs); });
 $('#csvIn').addEventListener('change', (e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) importFiles(fs); });
 $('#divIn').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importDividends(f); });
 $('#restoreIn').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) restoreFromFile(f); });
