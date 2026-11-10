@@ -53,6 +53,7 @@ jobs:
         run: |
           npx cap add android
           npx capacitor-assets generate --android --iconBackgroundColor '#6b4eff' --iconBackgroundColorDark '#6b4eff' --splashBackgroundColor '#f5f5fa' --splashBackgroundColorDark '#0d0f14'
+          cp -r assets/android-res/. android/app/src/main/res/
           npx cap sync android
 
       - name: Set the version
