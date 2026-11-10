@@ -13,7 +13,7 @@ Live site: https://erehwon081.github.io/wealth-tracker/ · Releases (APKs): http
 ## Layout
 
 - `www/index.html`, `www/app.css`: markup and styles. Colours are CSS tokens on `:root`, with dark mode under `prefers-color-scheme` and `[data-theme="dark"]`.
-- `www/js/app.js`: the app. `www/js/storage.js`: the only code touching IndexedDB (swappable adapter). `backup.js`: backup format and AES-GCM/PBKDF2 encryption. `prices.js`, `csv.js`: published-CSV price parsing. `theme.js`: applies the saved theme before first paint. `reminders.js`: plans reminder notifications (Android app). `sample.js`: sample data.
+- `www/js/app.js`: the app. `www/js/storage.js`: the only code touching IndexedDB (swappable adapter). `backup.js`: backup format and AES-GCM/PBKDF2 encryption. `prices.js`, `csv.js`: published-CSV price parsing. `theme.js`: applies the saved theme before first paint. `reminders.js`: plans reminder notifications (Android app). `loans.js`: loan simulation and rate history. `tax.js`: financial years, franking credits, parcel matching and capital gains. `sample.js`: sample data.
 - `www/sw.js`: service worker; `__BUILD__` is replaced with the commit in CI. Add any new shell file to its `SHELL` list.
 - Vendored, so the app works offline: `www/vendor/pdfjs/` (pdf.js 3.11.174) and `www/fonts/` (Bricolage Grotesque, Inter).
 - `assets/`: sources for the Android icon and splash; `assets/android-res/` is copied into the generated Android project's `res/` (for example, the notification icon). The `android/` project is not committed; CI generates it.
@@ -25,7 +25,7 @@ Backup file: `{"format":"wealth-tracker-backup","version":1,config,accounts[],mo
 
 ## Testing
 
-- `npm test`: unit tests (CSV, prices, backup, changelog). These run in CI.
+- `npm test`: unit tests (CSV, prices, backup, changelog, reminders, loans, tax). These run in CI.
 - End-to-end in Chromium (Playwright is preinstalled in cloud sessions): `cd www && python3 -m http.server 8765 --bind 127.0.0.1 &` then `node tests/e2e.cjs`. Not run in CI. Run it before merging any UI change, and add a check for each bug fixed.
 - Check layout at phone width (390–412px), in both light and dark. To mimic the Android app's system bars, set `--safe-area-inset-top`/`--safe-area-inset-bottom` on `<html>`.
 

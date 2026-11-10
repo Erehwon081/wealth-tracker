@@ -3,10 +3,12 @@ import { parseCSV } from './csv.js';
 import { fetchAllPrices, looksLikePublishedCsv, SHEET_COLS } from './prices.js';
 import { buildBackup, encryptBackup, decryptBackup, isEncrypted, readBackup, backupFileName } from './backup.js';
 import { planReminders, DEFAULT_REMINDERS, isOurs } from './reminders.js';
+import { simulate, rateAt, rateChangeCost, sortHistory } from './loans.js';
+import { fyOf, fyLabel, fyList, fySummary, matchParcels, unitsHeld, costHeld, totalDivs, frankingCredit, parseDividendRows, taxCsv } from './tax.js';
 
 'use strict';
 // ---------- constants ----------
-const SPEND_CATS = ['Groceries','Eating out','Cafes','Fuel','Transport','Bills','Insurance','Health','Personal care','Shopping','Clothing','Home & furniture','Entertainment','Subscriptions','Services','Pets','Gifts','Rego','Council rates','Interest & fees','Other'];
+const SPEND_CATS = ['Groceries','Eating out','Cafes','Fuel','Transport','Bills','Insurance','Health','Personal care','Shopping','Clothing','Home & furniture','Entertainment','Subscriptions','Services','Pets','Gifts','Home repairs','Rego','Council rates','Interest & fees','Other'];
 const FLOW_CATS = ['Income','Money in','Rent','Mortgage','Car loan','Child support','Partner mortgage share','Partner other','Transfer',"Partner's card"];
 const ALL_CATS = [...SPEND_CATS, ...FLOW_CATS];
 // Icon (24px stroke path) and colour token for each category.
@@ -23,7 +25,7 @@ const ICONS = {
 const CAT_LOOK = {
   Groceries: ['cart', 'teal'], 'Eating out': ['fork', 'orange'], Cafes: ['cup', 'orange'], Fuel: ['fuel', 'blue'], Transport: ['car', 'blue'], Bills: ['bolt', 'yellow'], Insurance: ['shield', 'blue'],
   Health: ['heart', 'red'], 'Personal care': ['spark', 'pink'], Shopping: ['bag', 'pink'], Clothing: ['shirt', 'pink'], 'Home & furniture': ['sofa', 'teal'], Entertainment: ['ticket', 'violet'],
-  Subscriptions: ['play', 'red'], Services: ['wrench', 'grey'], Pets: ['paw', 'orange'], Gifts: ['gift', 'violet'], Rego: ['doc', 'grey'], 'Council rates': ['home', 'grey'], 'Interest & fees': ['percent', 'red'], Other: ['dots', 'grey'],
+  Subscriptions: ['play', 'red'], Services: ['wrench', 'grey'], Pets: ['paw', 'orange'], Gifts: ['gift', 'violet'], 'Home repairs': ['wrench', 'teal'], Rego: ['doc', 'grey'], 'Council rates': ['home', 'grey'], 'Interest & fees': ['percent', 'red'], Other: ['dots', 'grey'],
   Income: ['down', 'teal'], 'Money in': ['down', 'teal'], Rent: ['home', 'yellow'], Mortgage: ['home', 'blue'], 'Car loan': ['car', 'grey'], 'Child support': ['user', 'grey'],
   'Partner mortgage share': ['user', 'violet'], 'Partner other': ['user', 'violet'], Transfer: ['arrows', 'grey'], "Partner's card": ['card', 'violet']
 };
@@ -439,6 +441,18 @@ const fieldRow = (labelTxt, sub, control, forId) => el('div', { class: 'field' }
 function accountSheet(acct) {
   const a = acct ? { ...acct } : { id: 'a' + Date.now().toString(36), name: '', type: 'cash', ownerPct: 100, order: S.accounts.length };
   const typeSel = el('select', { id: 'f-type', class: 'month-pick' }, Object.entries(TYPES).map(([k, v]) => el('option', { value: k, selected: k === a.type }, v)));
+  // Extra details for loans, used by the what-if screen and the house ledger.
+  const hist = sortHistory(a.rateHistory).map((x) => ({ ...x })); const histBox = el('div', {});
+  const drawHist = () => histBox.replaceChildren(...hist.map((x) => el('div', { class: 'field' }, el('input', { class: 'plain', type: 'date', value: x.date, 'aria-label': 'Date the rate changed', oninput: (e) => { x.date = e.target.value; } }), el('input', { class: 'plain', inputmode: 'decimal', value: x.rate, placeholder: '% a year', 'aria-label': 'Rate from that date', oninput: (e) => { x.rate = n(e.target.value); } }))),
+    el('button', { class: 'btn small', type: 'button', text: 'Add a rate change', onclick: () => { hist.push({ date: new Date().toISOString().slice(0, 10), rate: n($('#f-rate').value) || '' }); drawHist(); } }));
+  drawHist();
+  const isLoan = (t) => t === 'mortgage' || t === 'loan';
+  const loanBox = el('div', { id: 'f-loanbox', hidden: !isLoan(a.type) },
+    fieldRow('Rate type', null, el('select', { id: 'f-rtype', class: 'month-pick' }, [['variable', 'Variable'], ['fixed', 'Fixed']].map(([v, l]) => el('option', { value: v, selected: (a.rateType || 'variable') === v }, l))), 'f-rtype'),
+    fieldRow('Fixed until', 'If fixed', el('input', { id: 'f-fixed', class: 'plain', type: 'month', value: a.fixedUntil || '' }), 'f-fixed'),
+    fieldRow('Linked offset', 'Its balance cuts the interest', el('select', { id: 'f-offset', class: 'month-pick' }, el('option', { value: '' }, 'None'), S.accounts.filter((x) => x.type === 'offset').map((x) => el('option', { value: x.id, selected: a.offsetId === x.id }, x.name))), 'f-offset'),
+    el('h3', { text: 'Rate history', style: 'margin-top:8px' }), el('p', { class: 'cap muted', text: 'Each date the rate changed and the new rate. Start with the rate the loan began on.' }), histBox);
+  typeSel.addEventListener('change', () => { loanBox.hidden = !isLoan(typeSel.value); });
   const body = el('div', { class: 'card' },
     fieldRow('Name', null, el('input', { id: 'f-name', class: 'plain', value: a.name, placeholder: 'e.g. NAB offset' }), 'f-name'),
     fieldRow('Type', null, typeSel, 'f-type'),
@@ -446,6 +460,7 @@ function accountSheet(acct) {
     fieldRow('Match CSV account', 'Last 4 digits, comma separated', el('input', { id: 'f-match', class: 'plain', value: a.match || '', inputmode: 'numeric' }), 'f-match'),
     fieldRow('Interest rate', '% a year, for loans', el('input', { id: 'f-rate', class: 'plain', inputmode: 'decimal', value: a.rate ?? '' }), 'f-rate'),
     fieldRow('Repayment', 'Per month', moneyInput('f-pay', a.repayment, 'Repayment'), 'f-pay'),
+    loanBox,
     fieldRow('Note', null, el('input', { id: 'f-note', class: 'plain', value: a.note || '' }), 'f-note'),
     acct ? el('button', { class: 'btn small', type: 'button', text: 'Remove this account', onclick: async (e) => {
       const b = e.currentTarget; if (b.dataset.armed) { await deleteDoc('accounts/' + a.id); S.accounts = S.accounts.filter((x) => x.id !== a.id); render(); $('.sheet-bg')?.remove(); toast('Removed'); }
@@ -453,6 +468,7 @@ function accountSheet(acct) {
   sheet(acct ? 'Edit account' : 'Add account or loan', body, async () => {
     const name = $('#f-name').value.trim(); if (!name) { toast('Give it a name'); return false; }
     Object.assign(a, { name, type: $('#f-type').value, ownerPct: Math.max(0, Math.min(100, n($('#f-own').value) || 0)), match: $('#f-match').value.trim(), rate: $('#f-rate').value ? n($('#f-rate').value) : null, repayment: $('#f-pay').value ? n($('#f-pay').value) : null, note: $('#f-note').value.trim() });
+    if (isLoan(a.type)) Object.assign(a, { rateType: $('#f-rtype').value, fixedUntil: $('#f-fixed').value || null, offsetId: $('#f-offset').value || null, rateHistory: sortHistory(hist) });
     const i = S.accounts.findIndex((x) => x.id === a.id); if (i >= 0) S.accounts[i] = a; else S.accounts.push(a);
     render(); await writeDoc('accounts/' + a.id, a); toast('Saved');
   });
@@ -657,9 +673,11 @@ function renderWealth() {
   for (const a of [...morts, ...loans]) {
     const b = balanceFor(a, m); const p = b ? payoff(b.v, a.rate, a.repayment) : null;
     const yrs = p && Number.isFinite(p.months) ? `${Math.floor(p.months / 12)}y ${p.months % 12}m to go` : p ? 'Repayment doesn\'t cover interest' : 'Add balance, rate and repayment';
-    prop.append(el('div', { class: 'catrow' }, el('div', { class: 'row' }, el('strong', { text: a.name }), el('span', { class: 'num neg', text: b ? $0(b.v) : 'No balance' })),
+    prop.append(el('div', { class: 'catrow tap', role: 'button', tabindex: '0', 'aria-label': `What if: ${a.name}`, onclick: () => whatIfSheet([a]), onkeydown: (e) => { if (e.key === 'Enter') whatIfSheet([a]); } }, el('div', { class: 'row' }, el('strong', { text: a.name }), el('span', { class: 'num neg', text: b ? $0(b.v) : 'No balance' })),
       el('p', { class: 'cap muted', text: [a.rate ? a.rate + '%' : null, a.repayment ? $0(a.repayment) + '/mo' : null, yrs, p ? `about ${$0(p.interestMonth)} interest/mo` : null].filter(Boolean).join(' · ') })));
   }
+  if (morts.length + loans.length) prop.append(el('div', { class: 'btns' }, morts.length > 1 ? el('button', { class: 'btn small', type: 'button', text: 'What if: all home loans', onclick: () => whatIfSheet(morts) }) : null), el('p', { class: 'cap muted', text: 'Tap a loan to see what extra repayments or more in the offset would do.' }));
+  renderLedger();
   if (!hv && !morts.length && !loans.length) prop.append(el('p', { class: 'cap muted', text: 'Add the house, mortgage and car loan to see equity and payoff dates.' }));
 
   // accounts list
@@ -739,8 +757,8 @@ function goalSheet() { const c = cfg(); sheet('Cash goal', el('div', { class: 'c
 // ---------- investments ----------
 const KINDS = { etf: 'ETFs', stock: 'Shares', crypto: 'Crypto', fund: 'Managed funds' };
 const KIND_C = { etf: 'var(--c-violet)', stock: 'var(--c-teal)', crypto: 'var(--c-orange)', fund: 'var(--c-pink)' };
-const hUnits = (h) => h.lots?.length ? h.lots.reduce((s, l) => s + n(l.units), 0) - n(h.sold) : n(h.units);
-const hCost = (h) => h.lots?.length ? h.lots.reduce((s, l) => s + n(l.units) * n(l.price) + n(l.fee), 0) : n(h.cost);
+const hUnits = (h) => h.lots?.length ? unitsHeld(h) : n(h.units); // purchases minus recorded sales
+const hCost = (h) => h.lots?.length ? costHeld(h) : n(h.cost); // cost of the parcels still held
 const hValue = (h) => hUnits(h) * n(h.price);
 const fmtUnits = (u) => u >= 100 ? Math.round(u).toLocaleString('en-AU') : (+u.toFixed(4)).toString();
 const fmtPrice = (p) => p >= 1 ? $2(p) : '$' + (+p.toPrecision(3)).toString();
@@ -752,7 +770,7 @@ function hSeries(h) {
   if (n(h.price)) pts.set(h.priceAt || new Date().toISOString().slice(0, 10), n(h.price));
   const lots = [...(h.lots || [])].sort((a, b) => a.date.localeCompare(b.date));
   return [...pts.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([d, p]) => {
-    const u = lots.length ? lots.filter((l) => l.date <= d).reduce((s2, l) => s2 + n(l.units), 0) : n(h.units);
+    const u = lots.length ? lots.filter((l) => l.date <= d).reduce((s2, l) => s2 + n(l.units), 0) - (h.sales || []).filter((x) => x.date <= d).reduce((s2, x) => s2 + n(x.units), 0) : n(h.units);
     return { d, v: u * p };
   }).filter((x) => x.v > 0);
 }
@@ -771,7 +789,7 @@ function sparkline(series) {
   return svg;
 }
 const addHistory = (h, d, p) => { h.history = (h.history || []).filter((x) => x.d !== d); h.history.push({ d, p }); h.history.sort((a, b) => a.d.localeCompare(b.d)); if (h.history.length > 400) h.history = h.history.slice(-400); };
-function invTotals() { let v = 0, c = 0, d = 0; for (const h of S.holdings) { if (!hUnits(h)) continue; v += hValue(h); c += hCost(h); d += n(h.divs); } return { v, c, d, g: v - c }; }
+function invTotals() { let v = 0, c = 0, d = 0; for (const h of S.holdings) { if (!hUnits(h)) continue; v += hValue(h); c += hCost(h); d += totalDivs(h); } return { v, c, d, g: v - c }; }
 function renderInvest() {
   const hs = S.holdings.filter((h) => hUnits(h) > 0).sort((a, b) => hValue(b) - hValue(a));
   const T = invTotals();
@@ -809,9 +827,10 @@ function renderInvest() {
   if (sold.length) li.append(el('p', { class: 'cap muted', style: 'margin-top:8px', text: `Watching: ${sold.map((h) => h.ticker).join(', ')}` }));
   // dividends
   const dv = $('#i-divs'); dv.replaceChildren(el('h2', { text: 'Dividends received' }));
-  const withD = hs.filter((h) => n(h.divs) > 0);
-  if (withD.length) { dv.append(el('div', { class: 'list' }, withD.map((h) => el('div', { class: 'row' }, el('span', { text: h.ticker + (h.drp ? ' · reinvested' : '') }), el('span', { class: 'num', text: $0(n(h.divs)) }))))); dv.append(el('div', { class: 'row', style: 'padding-top:8px;border-top:1px solid var(--line)' }, el('strong', { text: 'Total return incl. dividends' }), el('strong', { class: 'num ' + (T.g + T.d >= 0 ? 'pos' : 'neg'), text: sgn(T.g + T.d) }))); }
+  const withD = hs.filter((h) => totalDivs(h) > 0);
+  if (withD.length) { dv.append(el('div', { class: 'list' }, withD.map((h) => el('div', { class: 'row' }, el('span', { text: h.ticker + (h.drp ? ' · reinvested' : '') }), el('span', { class: 'num', text: $0(totalDivs(h)) }))))); dv.append(el('div', { class: 'row', style: 'padding-top:8px;border-top:1px solid var(--line)' }, el('strong', { text: 'Total return incl. dividends' }), el('strong', { class: 'num ' + (T.g + T.d >= 0 ? 'pos' : 'neg'), text: sgn(T.g + T.d) }))); }
   else dv.append(el('p', { class: 'cap muted', text: 'Record dividends on each holding to include them in your return.' }));
+  renderTax();
 }
 let liveBusy = false;
 const setLive = (t, cls) => { const p = $('#i-live'); if (p) { p.textContent = t; p.className = 'cap ' + (cls || 'muted'); } };
@@ -872,17 +891,19 @@ function holdingSheet(hIn) {
       fieldRow('Type', null, el('select', { id: 'hd-kind', class: 'month-pick' }, Object.entries(KINDS).map(([k, v]) => el('option', { value: k, selected: k === h.kind }, v))), 'hd-kind'),
       fieldRow('Current price', 'AUD per unit', moneyInput('hd-px', h.price, 'Price'), 'hd-px'),
       fieldRow('Target', '% of its group', el('input', { id: 'hd-tg', class: 'plain', inputmode: 'decimal', value: h.target ?? '' }), 'hd-tg'),
-      fieldRow('Dividends received', 'After tax, all time', moneyInput('hd-dv', h.divs, 'Dividends'), 'hd-dv'),
-      fieldRow('Units sold', 'Taken off the units bought', el('input', { id: 'hd-sold', class: 'plain', inputmode: 'decimal', value: h.sold ?? '' }), 'hd-sold'),
+      fieldRow('Earlier dividends', 'Total from before the payments listed below', moneyInput('hd-dv', h.divs, 'Dividends'), 'hd-dv'),
+      fieldRow('Earlier units sold', 'From before the sales listed below', el('input', { id: 'hd-sold', class: 'plain', inputmode: 'decimal', value: h.sold || '' }), 'hd-sold'),
+      fieldRow('Company tax rate', 'For franking credits', el('select', { id: 'hd-ct', class: 'month-pick' }, [[30, '30%'], [25, '25% (smaller companies)']].map(([v, l]) => el('option', { value: v, selected: n(h.companyTax || 30) === v }, l))), 'hd-ct'),
       el('h3', { text: 'Purchases', style: 'margin-top:8px' }),
       lots.length ? el('div', { style: 'overflow-x:auto;max-height:16rem' }, el('table', { class: 'lots' }, el('thead', {}, el('tr', {}, el('th', { text: 'Date' }), el('th', { text: 'Units' }), el('th', { text: 'Price' }), el('th', { text: 'Cost' }), el('th', { text: '' }))),
         el('tbody', {}, [...lots].map((l, i) => [l, i]).sort((a, b) => b[0].date.localeCompare(a[0].date)).map(([l, i]) => el('tr', {}, el('td', { text: l.date.split('-').reverse().join('/') }), el('td', { class: 'num', text: fmtUnits(n(l.units)) }), el('td', { class: 'num', text: fmtPrice(n(l.price)) }), el('td', { class: 'num', text: $0(n(l.units) * n(l.price) + n(l.fee)) }), el('td', {}, el('button', { class: 'btn small', type: 'button', text: '×', 'aria-label': 'Remove purchase', onclick: () => { keep(); lots.splice(i, 1); draw(); } }))))))) : el('p', { class: 'cap muted', text: 'No purchases recorded.' }),
       el('div', { class: 'field' }, el('input', { id: 'nl-date', class: 'plain', type: 'date', 'aria-label': 'Purchase date', value: new Date().toISOString().slice(0, 10) }), el('input', { id: 'nl-units', class: 'plain', inputmode: 'decimal', placeholder: 'Units', 'aria-label': 'Units' })),
-      el('div', { class: 'field' }, moneyInput('nl-price', null, 'Price per unit'), moneyInput('nl-fee', null, 'Brokerage')),
+      el('div', { class: 'field' }, mi('nl-price', 'Price per unit'), mi('nl-fee', 'Brokerage')),
       el('button', { class: 'btn small', type: 'button', text: 'Add purchase', onclick: () => { const u = n($('#nl-units').value), p = n($('#nl-price').value); if (!u || !p) { toast('Enter units and price'); return; } keep(); lots.push({ date: $('#nl-date').value || new Date().toISOString().slice(0, 10), units: u, price: p, fee: n($('#nl-fee').value) }); draw(); } }),
+      ...holdingTaxSections(h, lots, keep, draw),
       hIn ? el('button', { class: 'btn small', type: 'button', text: 'Delete holding', style: 'margin-top:8px', onclick: async (e) => { const b = e.currentTarget; if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Tap again to delete'; return; } await deleteDoc('holdings/' + h.id); S.holdings = S.holdings.filter((x) => x.id !== h.id); await syncInvestBalance(); render(); $('.sheet-bg')?.remove(); toast('Deleted'); } }) : null);
   };
-  const keep = () => { h.ticker = $('#hd-tk').value.trim().toUpperCase(); h.name = $('#hd-nm').value.trim(); h.kind = $('#hd-kind').value; h.price = $('#hd-px').value ? n($('#hd-px').value) : null; h.target = $('#hd-tg').value ? n($('#hd-tg').value) : null; h.divs = n($('#hd-dv').value); h.sold = $('#hd-sold').value ? n($('#hd-sold').value) : 0; };
+  const keep = () => { h.ticker = $('#hd-tk').value.trim().toUpperCase(); h.name = $('#hd-nm').value.trim(); h.kind = $('#hd-kind').value; h.price = $('#hd-px').value ? n($('#hd-px').value) : null; h.target = $('#hd-tg').value ? n($('#hd-tg').value) : null; h.divs = n($('#hd-dv').value); h.sold = $('#hd-sold').value ? n($('#hd-sold').value) : 0; h.companyTax = n($('#hd-ct').value) || 30; };
   draw();
   sheet(hIn ? h.ticker : 'Add holding', body, async () => {
     const oldPx = hIn ? n(hIn.price) : null; keep(); if (!h.ticker) { toast('Add a ticker'); return false; }
@@ -908,14 +929,14 @@ const fmtDate = (iso) => new Date(iso).toLocaleDateString('en-AU', { day: 'numer
 // ---------- Android app (Capacitor) ----------
 const NATIVE = !!window.Capacitor?.isNativePlatform?.();
 const plugin = (name) => window.Capacitor?.Plugins?.[name];
-async function downloadFile(name, text) {
+async function downloadFile(name, text, type = 'application/json', title = 'Save your backup') {
   if (NATIVE) {
     // The Android WebView can't download a blob, so write the file to the app's cache and open the share sheet (Drive, Files, email…).
     const { uri } = await plugin('Filesystem').writeFile({ path: name, data: text, directory: 'CACHE', encoding: 'utf8' });
-    await plugin('Share').share({ title: name, files: [uri], dialogTitle: 'Save your backup' });
+    await plugin('Share').share({ title: name, files: [uri], dialogTitle: title });
     return;
   }
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const url = URL.createObjectURL(new Blob([text], { type }));
   const a = el('a', { href: url, download: name, style: 'display:none' }); document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
@@ -1041,6 +1062,207 @@ function renderBackupNudge(host) {
     el('button', { class: 'btn small', type: 'button', text: 'Back up', onclick: settingsSheet })));
 }
 
+// ---------- mortgage what-if ----------
+// Balance, rate, repayment and linked offset for each loan in month m. A shared offset is counted once, against the highest-rate loan.
+function loanInputs(accts, m, historic) {
+  const used = new Set();
+  return [...accts].sort((a, b) => n(b.rate) - n(a.rate)).map((a) => {
+    const b = balanceFor(a, m); let offset = 0;
+    if (a.offsetId && !used.has(a.offsetId)) { used.add(a.offsetId); const o = S.accounts.find((x) => x.id === a.offsetId); offset = Math.max(0, (o && balanceFor(o, m)?.v) || 0); }
+    return { balance: Math.abs(b?.v || 0), rate: historic ? rateAt(a.rateHistory, m, a.rate) : n(a.rate), repayment: n(a.repayment), offset };
+  });
+}
+function dualChart(host, base, scen) {
+  host.replaceChildren();
+  const W = Math.max(280, host.clientWidth || 320), H = 170, pad = { l: 4, r: 4, t: 12, b: 22 };
+  const len = Math.max(base.length, scen.length, 2), hi = Math.max(base[0] || 0, scen[0] || 0, 1);
+  const x = (i) => pad.l + (i * (W - pad.l - pad.r)) / (len - 1), y = (v) => pad.t + (H - pad.t - pad.b) * (1 - v / hi);
+  const ns = 'http://www.w3.org/2000/svg'; const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', 'Loan balance over time, now and with your changes');
+  const mk = (t, a) => { const e = document.createElementNS(ns, t); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); svg.append(e); return e; };
+  const path = (s) => { const step = Math.max(1, Math.ceil(s.length / 160)); const pts = s.map((v, i) => [i, v]).filter(([i]) => i % step === 0 || i === s.length - 1); return pts.map(([i, v], k) => `${k ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(''); };
+  mk('line', { x1: 0, x2: W, y1: y(0), y2: y(0), stroke: 'var(--line)', 'stroke-width': 1 });
+  mk('path', { d: path(base), fill: 'none', stroke: 'var(--muted)', 'stroke-width': 2, 'stroke-dasharray': '5 5', 'stroke-linecap': 'round' });
+  mk('path', { d: path(scen), fill: 'none', stroke: 'var(--accent)', 'stroke-width': 3, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+  const lab = (i, anchor, txt) => { const t = mk('text', { x: Math.min(W - 2, Math.max(2, x(i))), y: H - 6, 'text-anchor': anchor }); t.textContent = txt; };
+  lab(0, 'start', 'Now'); lab(len - 1, 'end', mLabel(mAdd(thisMonth(), len - 1)));
+  if (scen.length < base.length - 6 && scen.length > 12) lab(scen.length - 1, 'middle', mLabel(mAdd(thisMonth(), scen.length - 1)));
+  host.append(svg);
+}
+const fmtSpan = (m) => `${Math.floor(m / 12)}y ${m % 12}m`;
+function whatIfSheet(accts) {
+  const m = S.month; const loans = loanInputs(accts, m);
+  const owing = loans.reduce((s, l) => s + l.balance, 0);
+  if (!owing || loans.some((l) => l.balance && (!l.rate || !l.repayment))) { toast('Add a balance, interest rate and repayment for the loan first'); if (accts.length === 1) accountSheet(accts[0]); return; }
+  const base = simulate(loans); const out = el('div', {}); const chart = el('div', { class: 'chart' });
+  const line = (l, v, cls) => el('div', { class: 'row', style: 'padding-block:6px;border-top:1px solid var(--line)' }, el('span', { text: l }), el('span', { class: 'num ' + (cls || ''), text: v }));
+  const when = (s) => (s.paidOff ? mLabel(mAdd(thisMonth(), s.months), true) : 'Never, at this repayment');
+  const calc = () => {
+    const s = simulate(loans, { extraMonthly: n($('#wi-extra').value), lumpSum: n($('#wi-lump').value), extraOffset: n($('#wi-offset').value) });
+    const changed = n($('#wi-extra').value) || n($('#wi-lump').value) || n($('#wi-offset').value);
+    out.replaceChildren(line('Paid off, as things are', when(base)), line('Interest from here', base.paidOff ? $0(base.interest) : '—'),
+      ...(changed ? [line('Paid off, with your changes', when(s), 'pos'), line('Interest from here', s.paidOff ? $0(s.interest) : '—', 'pos'),
+        ...(base.paidOff && s.paidOff ? [line('You save', `${$0(base.interest - s.interest)} and ${fmtSpan(base.months - s.months)}`, 'pos')] : [])] : [el('p', { class: 'cap muted', style: 'padding-top:8px', text: 'Enter an amount above to compare.' })]));
+    dualChart(chart, base.series, s.series);
+  };
+  const inp = (id, label, sub) => { const w = moneyInput(id, null, label); w.querySelector('input').addEventListener('input', calc); return fieldRow(label, sub, w, id); };
+  const totalOffset = loans.reduce((s, l) => s + l.offset, 0);
+  const notes = [];
+  for (const a of accts) {
+    if (a.rateType === 'fixed') notes.push(`${a.name} is fixed${a.fixedUntil ? ` until ${mLabel(a.fixedUntil, true)}` : ''}. Extra repayments on a fixed loan can be capped or attract break fees, so check with your lender.`);
+    const h = sortHistory(a.rateHistory); if (h.length < 2) continue;
+    const bals = []; for (let k = h[1].date.slice(0, 7); k <= m; k = mAdd(k, 1)) { const l = loanInputs([a], k)[0]; if (balanceFor(a, k)) bals.push({ m: k, bal: Math.max(0, l.balance - l.offset) }); }
+    const c = rateChangeCost(h, bals);
+    if (c && c.months) notes.push(`${a.name}: since the rate moved off ${c.base}% in ${mLabel(c.from.slice(0, 7), true)} (now ${c.now}%), you've paid about ${$0(Math.abs(c.cost))} ${c.cost >= 0 ? 'more' : 'less'} interest over ${c.months} month${c.months > 1 ? 's' : ''}.`);
+  }
+  const body = el('div', { class: 'card' },
+    el('p', { class: 'cap muted', text: `${$0(owing)} owing${totalOffset ? `, with ${$0(totalOffset)} in the offset` : ''}. ${loans.map((l) => `${l.rate}% · ${$0(l.repayment)}/mo`).join(' and ')}.` }),
+    inp('wi-extra', 'Extra repayment', 'Each month'), inp('wi-lump', 'One-off lump sum', 'Paid now'), inp('wi-offset', 'Extra in the offset', 'Kept there'),
+    out, chart, el('div', { class: 'legend' }, el('span', { style: '--c:var(--muted)', text: 'As things are' }), el('span', { style: '--c:var(--accent)', text: 'With your changes' })),
+    ...notes.map((t) => el('p', { class: 'cap muted', text: t })),
+    el('p', { class: 'cap muted', text: 'Assumes the rate and repayments stay as they are now. A guide, not financial advice.' }),
+    accts.length === 1 ? el('button', { class: 'btn small', type: 'button', text: 'Edit loan details', onclick: () => { $$('.sheet-bg').forEach((b) => b.remove()); accountSheet(accts[0]); } }) : null);
+  sheet(accts.length === 1 ? `What if: ${accts[0].name}` : 'What if: all home loans', body);
+  setTimeout(calc, 0);
+}
+
+// ---------- house ledger ----------
+const LEDGER_TYPES = { mortgage: 'Mortgage repayments', rates: 'Council rates', insurance: 'Building insurance', repairs: 'Repairs and maintenance', partner: 'Partner contributions' };
+let allTxP = null, allTxDone = false;
+// Building insurance is found by payee in the transactions, so the ledger needs every month's transactions loaded.
+function ensureAllTx() { if (!allTxP) allTxP = store.getAll('tx').then((all) => { for (const [k, rows] of Object.entries(all)) if (!S.tx[k] && Array.isArray(rows)) { fixRows(rows); S.tx[k] = rows; } }).catch(() => {}).then(() => { allTxDone = true; }); return allTxP; }
+function ledgerTotals(house, fy) {
+  const lg = house.ledger || {}; const insurers = (lg.insurers || []).map((x) => x.toUpperCase()).filter(Boolean);
+  const morts = S.accounts.filter((a) => a.type === 'mortgage');
+  const t = { mortgage: 0, tracked: 0, interest: 0, rates: 0, insurance: 0, repairs: 0, partner: 0 };
+  for (const m of sortedMonths()) {
+    if (fy !== 'all' && fyOf(m + '-01') !== fy) continue;
+    const d = S.months[m] || {}; const paid = n(d.mortgagePaid);
+    t.mortgage += paid; t.tracked += paid; t.partner += n(d.shonnyMortgage); t.rates += n(d.spend?.['Council rates']); t.repairs += n(d.spend?.['Home repairs']);
+    if (paid > 0) t.interest += Math.min(paid, loanInputs(morts, m, true).reduce((s, l) => s + (Math.max(0, l.balance - l.offset) * l.rate) / 1200, 0));
+    if (insurers.length) for (const x of S.tx[m] || []) if (x.cat === 'Insurance' && x.amt < 0 && insurers.some((p) => ((x.merchant || '') + ' ' + (x.desc || '')).toUpperCase().includes(p))) t.insurance -= x.amt;
+  }
+  for (const e of lg.manual || []) if ((fy === 'all' || +e.fy === fy) && e.type in t) t[e.type] += n(e.amount);
+  t.total = t.mortgage + t.rates + t.insurance + t.repairs; t.net = t.total - t.partner;
+  return t;
+}
+function renderLedger() {
+  const card = $('#w-ledger'); const house = S.accounts.find((a) => a.type === 'property');
+  card.hidden = !house; if (!house) return;
+  const years = [...new Set([...sortedMonths().map((m) => fyOf(m + '-01')), ...((house.ledger?.manual || []).map((e) => +e.fy).filter(Boolean)), fyOf(thisMonth() + '-01')])].sort((a, b) => b - a);
+  if (S.ledgerFy !== 'all' && !years.includes(S.ledgerFy)) S.ledgerFy = fyOf(S.month + '-01');
+  const sel = el('select', { class: 'month-pick', 'aria-label': 'Financial year', onchange: (e) => { S.ledgerFy = e.target.value === 'all' ? 'all' : +e.target.value; renderLedger(); } },
+    [...years.map((y) => [y, fyLabel(y)]), ['all', 'All years']].map(([v, l]) => el('option', { value: v, selected: v === S.ledgerFy }, l)));
+  const t = ledgerTotals(house, S.ledgerFy);
+  const row = (l, sub, v, cls) => el('div', { class: 'row' }, el('span', {}, l, sub ? el('small', { class: 'cap muted', style: 'display:block', text: sub }) : null), el('span', { class: 'num ' + (cls || ''), text: v }));
+  const hasInsurer = (house.ledger?.insurers || []).length > 0;
+  card.replaceChildren(el('div', { class: 'row' }, el('h2', { text: 'House ledger' }), el('button', { class: 'btn small', type: 'button', text: 'Edit', onclick: () => ledgerSheet(house) })),
+    el('div', { class: 'row' }, el('span', { class: 'cap muted', text: `Paid toward ${house.name}` }), sel),
+    el('div', { class: 'list' },
+      row(LEDGER_TYPES.mortgage, t.tracked > 0 ? `About ${$0(t.interest)} interest and ${$0(t.tracked - t.interest)} off the loan` : null, $0(t.mortgage)),
+      row(LEDGER_TYPES.rates, null, $0(t.rates)),
+      row(LEDGER_TYPES.insurance, hasInsurer ? null : 'Add your insurer under Edit to count it', $0(t.insurance)),
+      row(LEDGER_TYPES.repairs, 'Spending filed as Home repairs', $0(t.repairs))),
+    el('div', { class: 'row', style: 'padding-top:8px;border-top:1px solid var(--line)' }, el('strong', { text: 'Total paid' }), el('strong', { class: 'num', text: $0(t.total) })),
+    el('div', { class: 'row' }, el('span', {}, `${pName()}'s contributions`, el('small', { class: 'cap muted', style: 'display:block', text: 'Mortgage-share transfers to you' })), el('span', { class: 'num', text: '−' + $0(t.partner).replace('−', '') })),
+    el('div', { class: 'row' }, el('strong', { text: 'Your net contribution' }), el('strong', { class: 'num', text: $0(t.net) })),
+    el('p', { class: 'cap muted', text: 'From your check-ins and imported transactions, plus anything you add under Edit. The interest split is an estimate from the loan balance and rate each month.' }));
+  if (!allTxDone) ensureAllTx().then(() => { if (S.view === 'wealth') renderLedger(); });
+}
+function ledgerSheet(house) {
+  const lg = clone(house.ledger || {}); const items = (lg.manual || []).map((e) => ({ ...e })); const box = el('div', {});
+  const draw = () => box.replaceChildren(...items.map((e) => el('div', { style: 'display:flex;gap:8px;padding-block:6px;align-items:center' },
+    el('input', { class: 'plain', style: 'flex:0 0 4.6rem', inputmode: 'numeric', value: e.fy || '', placeholder: 'Year', 'aria-label': 'Financial year ending', oninput: (ev) => { e.fy = parseInt(ev.target.value, 10) || ''; } }),
+    el('select', { class: 'month-pick', style: 'flex:1;min-width:0', 'aria-label': 'Type of cost', onchange: (ev) => { e.type = ev.target.value; } }, Object.entries(LEDGER_TYPES).map(([k, v]) => el('option', { value: k, selected: e.type === k }, v))),
+    el('div', { class: 'money', style: 'flex:0 0 7rem' }, el('input', { type: 'text', inputmode: 'decimal', value: e.amount || '', placeholder: '0', 'aria-label': 'Amount', oninput: (ev) => { e.amount = n(ev.target.value); } })))),
+    el('button', { class: 'btn small', type: 'button', text: 'Add an earlier amount', onclick: () => { items.push({ fy: fyOf(thisMonth() + '-01') - 1, type: 'mortgage', amount: 0 }); draw(); } }));
+  draw();
+  const body = el('div', { class: 'card' },
+    fieldRow('Building insurer', 'Name as it appears on your statement, comma separated', el('input', { id: 'lg-ins', class: 'plain', value: (lg.insurers || []).join(', '), autocapitalize: 'characters' }), 'lg-ins'),
+    el('h3', { text: 'Earlier amounts', style: 'margin-top:8px' }),
+    el('p', { class: 'cap muted', text: 'For years before the app has your transactions. Enter the year the financial year ended (2025 for 2024–25), the type and the total. Clear an amount to remove it.' }), box);
+  sheet('House ledger', body, async () => {
+    house.ledger = { insurers: listVal($('#lg-ins').value), manual: items.filter((e) => +e.fy > 1990 && n(e.amount) > 0).map((e) => ({ fy: +e.fy, type: e.type, amount: n(e.amount) })) };
+    await writeDoc('accounts/' + house.id, { ...house }); render(); toast('Saved');
+  });
+}
+
+// ---------- tax year: dividends and sales ----------
+const dmy = (d) => d.split('-').reverse().join('/');
+// A money box whose placeholder says what it's for, for forms without separate labels.
+const mi = (id, ph) => { const w = moneyInput(id, null, ph); w.querySelector('input').placeholder = ph; return w; };
+function holdingTaxSections(h, lots, keep, draw) {
+  h.divPayments ||= []; h.sales ||= [];
+  const today = new Date().toISOString().slice(0, 10);
+  const del = (label, fn) => el('td', {}, el('button', { class: 'btn small', type: 'button', text: '×', 'aria-label': label, onclick: () => { keep(); fn(); draw(); } }));
+  const th = (...xs) => el('thead', {}, el('tr', {}, xs.map((x) => el('th', { text: x }))));
+  const byDate = (arr) => arr.map((x, i) => [x, i]).sort((a, b) => b[0].date.localeCompare(a[0].date));
+  const gainBy = {}; for (const d of matchParcels({ ...h, lots }).disposals) gainBy[d.saleDate] = (gainBy[d.saleDate] || 0) + d.gain;
+  const lastFr = h.divPayments.length ? h.divPayments[h.divPayments.length - 1].franked : (h.kind === 'crypto' ? 0 : 100);
+  return [
+    el('h3', { text: 'Dividends', style: 'margin-top:8px' }),
+    h.divPayments.length ? el('div', { style: 'overflow-x:auto;max-height:14rem' }, el('table', { class: 'lots' }, th('Date', 'Cash', 'Franked', 'Credit', ''),
+      el('tbody', {}, byDate(h.divPayments).map(([p, i]) => el('tr', {}, el('td', { text: dmy(p.date) }), el('td', { class: 'num', text: $2(n(p.amount)) }), el('td', { class: 'num', text: n(p.franked) + '%' }), el('td', { class: 'num', text: $2(frankingCredit(p.amount, p.franked, h.companyTax)) }), del('Remove dividend', () => h.divPayments.splice(i, 1))))))) : el('p', { class: 'cap muted', text: 'No dividends recorded.' }),
+    el('div', { class: 'field' }, el('input', { id: 'nd-date', class: 'plain', type: 'date', 'aria-label': 'Date paid', value: today }), mi('nd-amt', 'Cash')),
+    fieldRow('Franked', '% shown on your dividend statement', el('input', { id: 'nd-fr', class: 'plain', inputmode: 'decimal', value: lastFr }), 'nd-fr'),
+    fieldRow('Units reinvested', 'If any. A purchase is added for you', el('input', { id: 'nd-units', class: 'plain', inputmode: 'decimal' }), 'nd-units'),
+    el('button', { class: 'btn small', type: 'button', text: 'Add dividend', onclick: () => {
+      const amt = n($('#nd-amt').value), units = n($('#nd-units').value), date = $('#nd-date').value || today; if (!(amt > 0)) { toast('Enter the cash amount'); return; }
+      const fr = Math.min(100, Math.max(0, n($('#nd-fr').value)));
+      keep(); h.divPayments.push({ date, amount: amt, franked: fr, ...(units > 0 ? { units } : {}) }); h.divPayments.sort((a, b) => a.date.localeCompare(b.date));
+      if (units > 0) lots.push({ date, units, price: amt / units, fee: 0, drp: true });
+      draw();
+    } }),
+    el('h3', { text: 'Sales', style: 'margin-top:8px' }),
+    h.sales.length ? el('div', { style: 'overflow-x:auto;max-height:14rem' }, el('table', { class: 'lots' }, th('Date', 'Units', 'Price', 'Gain', ''),
+      el('tbody', {}, byDate(h.sales).map(([s, i]) => el('tr', {}, el('td', { text: dmy(s.date) }), el('td', { class: 'num', text: fmtUnits(n(s.units)) }), el('td', { class: 'num', text: fmtPrice(n(s.price)) }), el('td', { class: 'num ' + ((gainBy[s.date] || 0) >= 0 ? 'pos' : 'neg'), text: sgn(gainBy[s.date] || 0) }), del('Remove sale', () => h.sales.splice(i, 1))))))) : el('p', { class: 'cap muted', text: 'No sales recorded.' }),
+    el('div', { class: 'field' }, el('input', { id: 'ns-date', class: 'plain', type: 'date', 'aria-label': 'Date sold', value: today }), el('input', { id: 'ns-units', class: 'plain', inputmode: 'decimal', placeholder: 'Units', 'aria-label': 'Units sold' })),
+    el('div', { class: 'field' }, mi('ns-price', 'Price per unit'), mi('ns-fee', 'Brokerage')),
+    fieldRow('Parcels sold', 'Which purchases the sale comes from', el('select', { id: 'ns-method', class: 'month-pick' }, [['fifo', 'Oldest first'], ['maxcost', 'Highest cost first'], ['lifo', 'Newest first']].map(([v, l]) => el('option', { value: v }, l))), 'ns-method'),
+    el('button', { class: 'btn small', type: 'button', text: 'Add sale', onclick: () => {
+      const u = n($('#ns-units').value), p = n($('#ns-price').value), date = $('#ns-date').value || today; if (!u || !p) { toast('Enter units and price'); return; }
+      const sale = { date, units: u, price: p, fee: n($('#ns-fee').value), method: $('#ns-method').value };
+      keep(); h.sales.push(sale);
+      if (matchParcels({ ...h, lots }).unmatched > 1e-9) { h.sales.pop(); toast(`You held fewer than ${fmtUnits(u)} units on that date`); return; }
+      draw();
+    } }),
+  ];
+}
+function renderTax() {
+  const box = $('#i-tax'); if (!box) return;
+  const years = fyList(S.holdings, new Date().toISOString().slice(0, 10)); if (!years.includes(S.fy)) S.fy = years[0];
+  const s = fySummary(S.holdings, S.fy);
+  const sel = el('select', { class: 'month-pick', id: 'tax-fy', 'aria-label': 'Financial year', onchange: (e) => { S.fy = +e.target.value; renderTax(); } }, years.map((y) => el('option', { value: y, selected: y === S.fy }, fyLabel(y))));
+  const line = (l, v, cls, strong) => el('div', { class: 'row', style: 'padding-block:6px;border-top:1px solid var(--line)' }, el(strong ? 'strong' : 'span', { text: l }), el(strong ? 'strong' : 'span', { class: 'num ' + (cls || ''), text: v }));
+  box.replaceChildren(el('div', { class: 'row' }, el('h2', { text: 'Tax year' }), sel),
+    el('h3', { text: 'Dividends' }),
+    ...(s.dividends.length ? [line('Cash dividends', $2(s.cash)), line('Franking credits', $2(s.credits)), line('Grossed-up income', $2(s.grossed), '', true)] : [el('p', { class: 'cap muted', text: 'No dividends recorded in this year. Add them on each holding, or import a CSV.' })]),
+    el('h3', { text: 'Capital gains', style: 'margin-top:8px' }),
+    ...(s.disposals.length ? [
+      el('div', { class: 'list' }, s.disposals.map((d) => el('div', { class: 'row' }, el('span', {}, `${d.ticker} · ${fmtUnits(d.units)} sold ${dmy(d.saleDate)}`, el('small', { class: 'cap muted', style: 'display:block', text: `Bought ${dmy(d.lotDate)} · ${d.discount ? 'held over 12 months' : 'held 12 months or less'}` })), el('span', { class: 'num ' + (d.gain >= 0 ? 'pos' : 'neg'), text: sgn(d.gain, $2) })))),
+      line('Gains with the 50% discount', $2(s.discGains)), line('Other gains', $2(s.otherGains)), line('Losses', $2(s.losses)), line('Net capital gain', $2(s.net), '', true),
+      ...(s.carried > 0 ? [line('Loss to carry forward', $2(s.carried))] : []),
+    ] : [el('p', { class: 'cap muted', text: 'No sales recorded in this year. Add a sale on the holding when you sell.' })]),
+    el('div', { class: 'btns', style: 'margin-top:8px' },
+      el('button', { class: 'btn small primary', type: 'button', text: 'Export CSV', onclick: async () => { try { await downloadFile(`wealth-tracker-tax-${fyLabel(s.fy).replace('–', '-')}.csv`, taxCsv(s), 'text/csv', 'Save your tax summary'); toast('Tax summary exported'); } catch { toast("Couldn't export. Try again."); } } }),
+      el('button', { class: 'btn small', type: 'button', 'data-pick': 'divIn', text: 'Import dividends CSV' })),
+    el('p', { class: 'cap muted', text: 'For 1 July to 30 June. Losses come off gains before the discount. Estimates to check against your statements; not tax advice.' }));
+}
+async function importDividends(file) {
+  let rows; try { rows = parseDividendRows(parseCSV(await file.text()), parseDate); } catch { rows = []; }
+  if (!rows.length) { toast('No dividends found. The file needs Date, Ticker and Amount columns.'); return; }
+  let added = 0; const missing = new Set(), touched = new Set();
+  for (const r of rows) {
+    const h = S.holdings.find((x) => x.ticker === r.ticker); if (!h) { missing.add(r.ticker); continue; }
+    h.divPayments ||= [];
+    if (h.divPayments.some((p) => p.date === r.date && Math.abs(n(p.amount) - r.amount) < 0.005)) continue;
+    h.divPayments.push({ date: r.date, amount: r.amount, franked: r.franked, ...(r.units ? { units: r.units } : {}) }); touched.add(h); added++;
+  }
+  for (const h of touched) { h.divPayments.sort((a, b) => a.date.localeCompare(b.date)); await writeDoc('holdings/' + h.id, { ...h }); }
+  render();
+  toast(`${added} dividend${added === 1 ? '' : 's'} added` + (missing.size ? `. Not in your holdings: ${[...missing].join(', ')}` : ''));
+}
+
 // ---------- reminders (Android app) ----------
 const ordinal = (n) => { const sfx = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (sfx[(v - 20) % 10] || sfx[v] || sfx[0]); };
 const reminderSettings = () => ({ ...DEFAULT_REMINDERS, ...(cfg().reminders || {}) });
@@ -1152,6 +1374,7 @@ $('#pdfIn').addEventListener('change', (e) => { const f = e.target.files[0]; e.t
 let sq; $('#s-search').addEventListener('input', (e) => { clearTimeout(sq); sq = setTimeout(() => { S.search = e.target.value; renderSpend(); }, 180); });
 $('#s-sort').addEventListener('click', () => { S.sort = S.sort === 'amount' ? 'date' : 'amount'; renderSpend(); });
 $('#csvIn').addEventListener('change', (e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) importFiles(fs); });
+$('#divIn').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importDividends(f); });
 $('#restoreIn').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) restoreFromFile(f); });
 // File inputs are hidden; any button with data-pick="<input id>" opens that picker.
 document.addEventListener('click', (e) => { const b = e.target.closest?.('[data-pick]'); if (b) $('#' + b.dataset.pick)?.click(); });
@@ -1179,7 +1402,7 @@ function onReady() {
 async function loadState() {
   const [config, accounts, months, holdings, meta] = await Promise.all([store.get('config', 'app'), store.getAll('accounts'), store.getAll('months'), store.getAll('holdings'), store.getAll('meta')]);
   S.config = config ?? null; S.accounts = Object.values(accounts); S.months = months; S.holdings = Object.values(holdings); S.tx = {}; S.meta = meta || {};
-  S.draft = null; S.catFilter = null;
+  S.draft = null; S.catFilter = null; allTxP = null; allTxDone = false;
   if (S.config?.rules?.some((r) => fixCat(r.cat) !== r.cat)) { S.config.rules = S.config.rules.map((r) => ({ ...r, cat: fixCat(r.cat) })); await store.put('config', 'app', clone(S.config)); }
   S.ready = { config: true, accounts: true, months: true };
 }
