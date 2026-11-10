@@ -4,6 +4,17 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+### Added
+- Reminder notifications in the Android app (Settings > Reminders). Get a month-end check-in reminder on the last day of the month, the 1st, or a date you choose, at a time you choose. Tapping it opens Check-in. There's also an optional backup reminder 30 days after your last backup. Reminders are set on your phone, and nothing is sent anywhere.
+
+### Changed
+- The import card is gone from Spending. Import your CSVs and account list PDF in Check-in.
+
+### Fixed
+- On the Home cash flow chart, a negative month's amount no longer sits on top of the month name.
+- The last two month labels on the net worth chart no longer crowd together.
+- Dragging a finger along a chart no longer brings up Android's copy menu or selects the text below.
+
 ## 1.0.10 (10 Nov 2026)
 
 ### Changed

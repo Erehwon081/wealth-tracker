@@ -97,8 +97,6 @@ textarea { width: 100%; min-height: 72px; background: var(--surface-2); border: 
 .chart { width: 100%; }
 .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
 .chart text { fill: var(--muted); font-family: var(--f-num); font-size: 10px; }
-.drop { border: 1.5px dashed var(--line); border-radius: var(--r); padding: var(--s5) var(--s4); text-align: center; display: flex; flex-direction: column; gap: var(--s2); align-items: center; cursor: pointer; background: var(--surface); }
-.drop.over { border-color: var(--accent); background: var(--accent-soft); }
 .txtools { display: flex; gap: var(--s2); align-items: center; }
 .txtools input { flex: 1; min-width: 0; }
 .catrow.tap { cursor: pointer; border-radius: var(--r-sm); }
@@ -217,3 +215,5 @@ button.pill:not(.ok):not(.on) { border-color: var(--line); background: transpare
 /* Stat tiles shrink a long figure to fit the tile. */
 .stat { container-type: inline-size; }
 .stat .v { white-space: nowrap; font-size: clamp(1rem, 15cqi, 1.45rem); }
+/* Charts are dragged to read values, so a long press must not start text selection or the copy menu. Same for controls. */
+.chart, .chart *, .spark, .tabs, .btn, .pill, .chip, .seg, .icon-btn, .grab { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }

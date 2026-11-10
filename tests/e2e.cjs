@@ -101,7 +101,10 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
     '06 Dec 26,-61.00,082-000 99993333,EFTPOS,KMART MELBOURNE,,Other shopping,Kmart\n';
   const csvPath = path.join(tmp, 'nab.csv'); fs.writeFileSync(csvPath, csv);
   await p.click('.tab[data-tab=spend]'); await p.waitForTimeout(300);
-  await pick('#dropzone [data-pick=csvIn]', csvPath); await p.waitForTimeout(800);
+  ok(await p.locator('#v-spend [data-pick=csvIn], #dropzone').count() === 0, 'Spending has no import card (it lives in Check-in)');
+  await p.click('.tab[data-tab=checkin]'); await p.waitForTimeout(300);
+  await pick('#v-checkin [data-pick=csvIn]', csvPath); await p.waitForTimeout(800);
+  await p.click('.tab[data-tab=spend]'); await p.waitForTimeout(500);
   ok(await p.inputValue('#monthPick') === '2026-12' && (await p.textContent('#s-tx')).includes('Woolworths'), 'CSV import works from the button');
   ok((await p.textContent('#s-tx')).includes("Sam's card"), 'partner card from Settings classifies the import');
 
@@ -198,6 +201,62 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
 
   ok(offsite.every((u) => u.startsWith('https://docs.google.com/')), 'no requests leave the app except the price link: ' + JSON.stringify([...new Set(offsite)]));
   ok(errors.length === 0, 'no page errors ' + JSON.stringify(errors));
+
+  // Cash flow chart: a loss's label never overlaps the month names
+  await p.click('.tab[data-tab=home]'); await p.waitForTimeout(800);
+  const overlaps = await p.evaluate(() => {
+    const texts = [...document.querySelectorAll('#h-cfchart text')].map((t) => t.getBoundingClientRect());
+    const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    let n = 0; for (let i = 0; i < texts.length; i++) for (let j = i + 1; j < texts.length; j++) if (hit(texts[i], texts[j])) n++;
+    return { n, count: texts.length };
+  });
+  ok(overlaps.count > 0 && overlaps.n === 0, `cash flow labels don't overlap (${JSON.stringify(overlaps)})`);
+
+  // Dragging on a chart must not select text or open the long-press menu
+  const sel = await p.evaluate(() => {
+    const svg = document.querySelector('#h-nwchart svg'); const cs = getComputedStyle(svg);
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true }); svg.dispatchEvent(ev);
+    const tab = getComputedStyle(document.querySelector('.tab'));
+    return { chart: cs.userSelect || cs.webkitUserSelect, tab: tab.userSelect || tab.webkitUserSelect, menuBlocked: ev.defaultPrevented };
+  });
+  ok(sel.chart === 'none' && sel.tab === 'none' && sel.menuBlocked, `charts and tabs can't be text-selected and the chart blocks the long-press menu (${JSON.stringify(sel)})`);
+
+  // Reminders, as in the Android app: a stand-in for Capacitor's notification plugin records what gets scheduled
+  const nctx = await browser.newContext({ ...devices['Pixel 7'] });
+  await nctx.addInitScript(() => {
+    const calls = (window.__ln = { scheduled: [], cancelled: [], requested: 0, pending: [] });
+    const ok = (v) => Promise.resolve(v);
+    window.Capacitor = { isNativePlatform: () => true, getPlatform: () => 'android', Plugins: {
+      App: { addListener: () => ok({ remove() {} }), exitApp: () => ok() },
+      SystemBars: { setStyle: () => ok() },
+      LocalNotifications: {
+        addListener: () => ok({ remove() {} }),
+        getPending: () => ok({ notifications: calls.pending }),
+        cancel: (o) => { calls.cancelled.push(...o.notifications.map((x) => x.id)); return ok(); },
+        checkPermissions: () => ok({ display: localStorage.getItem('__granted') ? 'granted' : 'prompt' }),
+        requestPermissions: () => { calls.requested++; localStorage.setItem('__granted', '1'); return ok({ display: 'granted' }); },
+        createChannel: () => ok(),
+        schedule: (o) => { calls.scheduled = o.notifications.map((x) => ({ ...x, at: new Date(x.schedule.at).toISOString() })); calls.pending = o.notifications.map((x) => ({ id: x.id })); return ok({ notifications: [] }); },
+      },
+    } };
+  });
+  const np = await nctx.newPage(); const nerrors = []; np.on('pageerror', (e) => nerrors.push(e.message));
+  await np.goto(BASE); await np.waitForTimeout(600); await np.click('text=Load sample data'); await np.waitForTimeout(800);
+  await np.click('#settingsBtn'); await np.waitForTimeout(300);
+  await np.selectOption('#rm-checkin', 'last'); await np.fill('#rm-time', '19:30'); await np.selectOption('#rm-backup', 'on');
+  await np.click('text=Save reminders'); await np.waitForTimeout(500);
+  const ln = await np.evaluate(() => window.__ln);
+  const checkins = ln.scheduled.filter((x) => x.extra.view === 'checkin');
+  const first = new Date(checkins[0]?.at || 0), now = new Date();
+  ok(ln.requested === 1 && checkins.length === 12 && ln.scheduled.length === 13, `saving asks permission once and schedules 12 check-ins plus a backup reminder (${ln.scheduled.length})`);
+  ok(first.getDate() === new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate() && first.getHours() === 19 && first.getMinutes() === 30 && first > now, 'first check-in is the last day of the month at 7:30 pm');
+  ok(ln.scheduled.every((x) => x.isExactNotification === false && x.schedule.allowWhileIdle && x.smallIcon === 'ic_stat_wealth'), 'reminders are inexact (no exact-alarm permission) and use the app icon');
+  ok((await np.textContent('#rm-status')).startsWith('Reminders set. Next:'), 'Settings confirms when the next reminder is');
+  await np.reload(); await np.waitForTimeout(800);
+  const ln2 = await np.evaluate(() => window.__ln);
+  ok(ln2.scheduled.length === 13 && ln2.requested === 0, 'opening the app re-plans the reminders without asking again');
+  ok(nerrors.length === 0, 'no page errors in the app build ' + JSON.stringify(nerrors));
+  await nctx.close();
   await browser.close();
   console.log(failed ? `${failed} failed` : 'all passed');
   process.exit(failed ? 1 : 0);

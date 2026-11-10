@@ -2,6 +2,7 @@ import * as store from './storage.js';
 import { parseCSV } from './csv.js';
 import { fetchAllPrices, looksLikePublishedCsv, SHEET_COLS } from './prices.js';
 import { buildBackup, encryptBackup, decryptBackup, isEncrypted, readBackup, backupFileName } from './backup.js';
+import { planReminders, DEFAULT_REMINDERS, isOurs } from './reminders.js';
 
 'use strict';
 // ---------- constants ----------
@@ -361,7 +362,7 @@ function lineChart(host, pts, opts = {}) {
   }
   pts.forEach((p, i) => { mk('circle', { cx: x(i), cy: y(p.v), r: i === pts.length - 1 ? 4.5 : 2.5, fill: 'var(--accent)' }); });
   const step = Math.ceil(pts.length / 6);
-  pts.forEach((p, i) => { if (i % step === 0 || i === pts.length - 1) { const t = mk('text', { x: x(i), y: H - 6, 'text-anchor': 'middle' }); t.textContent = mLabel(p.m); } });
+  pts.forEach((p, i) => { if (showLabel(i, pts.length, step)) { const t = mk('text', { x: x(i), y: H - 6, 'text-anchor': 'middle' }); t.textContent = mLabel(p.m); } });
   const lastI = pts.length - 1; const lt = mk('text', { x: Math.min(W - 4, Math.max(4, x(lastI))), y: y(pts[lastI].v) - 10, 'text-anchor': pts.length === 1 ? 'middle' : 'end' }); lt.textContent = $k(pts[lastI].v); lt.style.fill = 'var(--fg)';
   // Drag along the chart to read any point.
   if (pts.length > 1) {
@@ -381,17 +382,21 @@ function lineChart(host, pts, opts = {}) {
     };
     const hide = () => { g.setAttribute('visibility', 'hidden'); lt.setAttribute('visibility', 'visible'); cur = -1; };
     svg.style.touchAction = 'pan-y';
+    svg.addEventListener('contextmenu', (e) => e.preventDefault()); // no long-press menu while scrubbing
     svg.addEventListener('pointerdown', (e) => { svg.setPointerCapture?.(e.pointerId); show(e.clientX); });
     svg.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' || e.buttons) show(e.clientX); });
     svg.addEventListener('pointerup', hide); svg.addEventListener('pointercancel', hide); svg.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') hide(); });
   }
   host.append(svg);
 }
+// Month labels every `step` points plus the last one; drop a regular label that would crowd the last.
+const showLabel = (i, len, step) => i === len - 1 || (i % step === 0 && len - 1 - i >= Math.max(1, Math.ceil(step * 0.6)));
 function barChart(host, pts, opts = {}) {
   host.replaceChildren();
   if (!pts.length) { host.append(el('p', { class: 'cap muted', text: opts.empty || 'Nothing to chart yet.' })); return; }
-  const W = Math.max(280, host.clientWidth || 320), H = 160, pad = { t: 20, b: 22 };
   const vals = pts.map((p) => p.v); const hi = Math.max(0, ...vals), lo = Math.min(0, ...vals); const span = (hi - lo) || 1;
+  // Value labels sit above gains and below losses, so leave room for a label row under the bars when there's a loss.
+  const W = Math.max(280, host.clientWidth || 320), pad = { t: 20, b: lo < 0 ? 38 : 22 }, H = 160 + (lo < 0 ? 16 : 0);
   const y = (v) => pad.t + (H - pad.t - pad.b) * (1 - (v - lo) / span);
   const bw = Math.min(34, (W - 16) / pts.length * 0.6); const x = (i) => 8 + ((i + 0.5) * (W - 16)) / pts.length;
   const ns = 'http://www.w3.org/2000/svg'; const svg = document.createElementNS(ns, 'svg');
@@ -402,8 +407,8 @@ function barChart(host, pts, opts = {}) {
   pts.forEach((p, i) => {
     const top = y(Math.max(0, p.v)), h = Math.max(1.5, Math.abs(y(p.v) - y(0)));
     mk('rect', { x: x(i) - bw / 2, y: top, width: bw, height: h, rx: 3, fill: p.v >= 0 ? 'var(--good)' : 'var(--bad)', opacity: 0.85, class: 'grow ' + (p.v >= 0 ? 'up' : 'down'), style: `animation-delay:${i * 40}ms` });
-    const vt = mk('text', { x: x(i), y: p.v >= 0 ? top - 5 : top + h + 11, 'text-anchor': 'middle' }); vt.textContent = $k(p.v);
-    if (i % step === 0 || i === pts.length - 1) { const t = mk('text', { x: x(i), y: H - 5, 'text-anchor': 'middle' }); t.textContent = mLabel(p.m); }
+    const vt = mk('text', { x: x(i), y: p.v >= 0 ? top - 5 : top + h + 12, 'text-anchor': 'middle' }); vt.textContent = $k(p.v);
+    if (showLabel(i, pts.length, step)) { const t = mk('text', { x: x(i), y: H - 5, 'text-anchor': 'middle' }); t.textContent = mLabel(p.m); }
   });
   host.append(svg);
 }
@@ -571,7 +576,7 @@ async function renderSpend() {
       el('span', { class: 'num cap', text: `${show.length} · ${$2(total)}` })));
   }
   const list = $('#s-tx'); list.replaceChildren();
-  if (!rows.length) { list.append(el('div', { class: 'empty' }, el('p', { text: 'No transactions imported for this month.' }), el('button', { class: 'btn small primary', type: 'button', 'data-pick': 'csvIn', text: 'Import CSVs' }))); return; }
+  if (!rows.length) { list.append(el('div', { class: 'empty' }, el('p', { text: 'No transactions imported for this month. Import the CSVs in Check-in.' }), el('button', { class: 'btn small primary', type: 'button', text: 'Go to Check-in', onclick: () => go('checkin') }))); return; }
   if (!show.length) list.append(el('p', { class: 'cap muted', style: 'padding-block:12px', text: 'No transactions match.' }));
   for (const t of show.slice(0, 400)) {
     const sel = el('select', { 'aria-label': 'Category for ' + t.desc }, [...ALL_CATS, ...(ALL_CATS.includes(t.cat) ? [] : [t.cat])].map((k) => el('option', { value: k, selected: k === t.cat }, pLabel(k))));
@@ -921,7 +926,7 @@ async function backupNow(pass) {
     if (pass) out = await encryptBackup(out, pass);
     try { await downloadFile(backupFileName(), JSON.stringify(out, null, pass ? 0 : 1)); }
     catch (e) { setSave('Saved on this device'); toast(/cancel/i.test(e?.message || '') ? 'Backup not saved' : "Couldn't share the backup. Try again."); return false; }
-    await setMeta('lastBackup', new Date().toISOString()); setSave('Saved on this device');
+    await setMeta('lastBackup', new Date().toISOString()); setSave('Saved on this device'); syncReminders();
     toast(pass ? 'Encrypted backup downloaded' : 'Backup downloaded'); render(); return true;
   } catch { setSave('Saved on this device'); toast("Couldn't make the backup. Try again."); return false; }
 }
@@ -954,7 +959,7 @@ async function restoreFromFile(file) {
     try { await store.replaceAll(snap); } catch { toast("Couldn't restore. Nothing was changed."); return false; }
     await setMeta('since', new Date().toISOString());
     $$('.sheet-bg').forEach((b) => b.remove());
-    await reloadAll(); toast('Backup restored');
+    await reloadAll(); toast('Backup restored'); syncReminders();
   }, 'Replace and restore');
 }
 async function loadSample() {
@@ -1015,7 +1020,7 @@ function settingsSheet() {
   const drawTheme = () => themeSeg.replaceChildren(...[['system', 'Follow phone'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => el('button', { type: 'button', 'aria-pressed': window.wtTheme?.get() === k ? 'true' : 'false', text: l, onclick: () => { window.wtTheme?.set(k); drawTheme(); render(); } })));
   drawTheme();
   const appearance = el('div', { class: 'card' }, el('h2', { text: 'Appearance' }), themeSeg);
-  sheet('Settings', el('div', { style: 'display:flex;flex-direction:column;gap:var(--s3)' }, appearance, household, prices, backup, about));
+  sheet('Settings', el('div', { style: 'display:flex;flex-direction:column;gap:var(--s3)' }, appearance, remindersCard(), household, prices, backup, about));
 }
 
 function renderFirstRun(host) {
@@ -1034,6 +1039,56 @@ function renderBackupNudge(host) {
   const last = S.meta.lastBackup;
   host.append(el('div', { class: 'row' }, el('span', { text: last ? `Your last backup was ${fmtDate(last)}. Worth making a fresh one.` : "You haven't backed up yet. A backup keeps your data safe if this phone is lost." }),
     el('button', { class: 'btn small', type: 'button', text: 'Back up', onclick: settingsSheet })));
+}
+
+// ---------- reminders (Android app) ----------
+const ordinal = (n) => { const sfx = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (sfx[(v - 20) % 10] || sfx[v] || sfx[0]); };
+const reminderSettings = () => ({ ...DEFAULT_REMINDERS, ...(cfg().reminders || {}) });
+const fmtWhen = (d) => d.toLocaleString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+// Cancels our pending notifications and schedules the plan. Returns { status, next } where status is 'off', 'set', 'denied' or 'error'.
+async function syncReminders(askPermission = false) {
+  const LN = NATIVE && plugin('LocalNotifications'); if (!LN) return { status: 'off' };
+  try {
+    const pending = (await LN.getPending())?.notifications || [];
+    const ours = pending.filter((n) => isOurs(Number(n.id))).map((n) => ({ id: Number(n.id) }));
+    if (ours.length) await LN.cancel({ notifications: ours });
+    const plan = planReminders(reminderSettings(), new Date(), S.meta.lastBackup || S.meta.since);
+    if (!plan.length) return { status: 'off' };
+    let perm = await LN.checkPermissions();
+    if (perm.display !== 'granted' && askPermission) perm = await LN.requestPermissions();
+    if (perm.display !== 'granted') return { status: 'denied' };
+    try { await LN.createChannel({ id: 'reminders', name: 'Reminders', description: 'Month-end check-in and backup reminders', importance: 3 }); } catch {}
+    await LN.schedule({ notifications: plan.map((r) => ({
+      id: r.id, title: r.title, body: r.body, channelId: 'reminders',
+      schedule: { at: r.at, allowWhileIdle: true }, isExactNotification: false, // a few minutes late is fine; no exact-alarm permission needed
+      smallIcon: 'ic_stat_wealth', iconColor: '#6b4eff', extra: { view: r.view, action: r.action || null },
+    })) });
+    return { status: 'set', next: plan[0].at };
+  } catch { return { status: 'error' }; }
+}
+function remindersCard() {
+  const r = reminderSettings();
+  if (!NATIVE) return el('div', { class: 'card' }, el('h2', { text: 'Reminders' }), el('p', { class: 'cap muted', text: "Reminder notifications work in the Android app, where they're scheduled on your phone. Here, Home shows a backup reminder when one is due." }));
+  const whenSel = el('select', { id: 'rm-checkin', class: 'month-pick' },
+    [['off', 'Off'], ['last', 'Last day of the month'], ['first', '1st of the month'], ...Array.from({ length: 28 }, (_, i) => [String(i + 1), `On the ${ordinal(i + 1)}`])]
+      .map(([v, l]) => el('option', { value: v, selected: r.checkin === v }, l)));
+  const backupSel = el('select', { id: 'rm-backup', class: 'month-pick' }, [['off', 'Off'], ['on', '30 days after my last backup']].map(([v, l]) => el('option', { value: v, selected: r.backup === v }, l)));
+  const status = el('p', { class: 'cap muted', id: 'rm-status' });
+  return el('div', { class: 'card' }, el('h2', { text: 'Reminders' }),
+    el('p', { class: 'cap muted', text: 'Notifications are set on this phone. Nothing is sent anywhere.' }),
+    fieldRow('Month-end check-in', 'Opens Check-in when tapped', whenSel, 'rm-checkin'),
+    fieldRow('Backup reminder', null, backupSel, 'rm-backup'),
+    fieldRow('Time', 'For both reminders', el('input', { id: 'rm-time', class: 'plain', type: 'time', value: r.time }), 'rm-time'),
+    status,
+    el('div', { class: 'btns' }, el('button', { class: 'btn primary small', type: 'button', text: 'Save reminders', onclick: async () => {
+      await saveConfig({ reminders: { checkin: $('#rm-checkin').value, backup: $('#rm-backup').value, time: $('#rm-time').value || '19:00' } });
+      const res = await syncReminders(true);
+      const msg = res.status === 'set' ? `Reminders set. Next: ${fmtWhen(res.next)}.`
+        : res.status === 'off' ? 'Reminders are off.'
+        : res.status === 'denied' ? 'Notifications are off for Wealth Tracker. Turn them on in Android Settings > Apps > Wealth Tracker > Notifications, then save again.'
+        : "Couldn't set the reminders. Try again.";
+      status.textContent = msg; toast(msg);
+    } })));
 }
 
 // ---------- routing ----------
@@ -1101,10 +1156,6 @@ $('#restoreIn').addEventListener('change', (e) => { const f = e.target.files[0];
 // File inputs are hidden; any button with data-pick="<input id>" opens that picker.
 document.addEventListener('click', (e) => { const b = e.target.closest?.('[data-pick]'); if (b) $('#' + b.dataset.pick)?.click(); });
 $('#settingsBtn').addEventListener('click', settingsSheet);
-const dz = $('#dropzone');
-['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('over'); }));
-['dragleave', 'drop'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('over'); }));
-dz.addEventListener('drop', (e) => { const fs = [...(e.dataTransfer?.files || [])].filter((f) => /\.csv$/i.test(f.name)); if (fs.length) importFiles(fs); });
 $('#c-save').addEventListener('click', async () => { const m = S.month; const d = S.draft.d; d.notes = $('#c-notes').value.trim(); d.updatedAt = new Date().toISOString(); S.months[m] = clone(d); if (await writeDoc('months/' + m, S.months[m])) { S.draft.dirty = false; toast(`${mLabel(m, true)} saved`); } fillMonthPick(); });
 $('#c-reset').addEventListener('click', () => { renderCheckin(true); toast('Changes undone'); });
 $('#c-notes').addEventListener('input', (e) => { if (S.draft) { S.draft.dirty = true; S.draft.d.notes = e.target.value; } });
@@ -1144,6 +1195,14 @@ async function reloadAll() { await loadState(); S.month = pickStartMonth(); fill
   S.persisted = await store.persist();
   // The Android app ships its files inside the APK, so it needs no service worker.
   if (!NATIVE && 'serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('./sw.js').catch(() => {});
+  if (NATIVE) {
+    plugin('LocalNotifications')?.addListener('localNotificationActionPerformed', (e) => {
+      const x = e?.notification?.extra || {};
+      if (x.view) go(x.view);
+      if (x.action === 'backup') settingsSheet();
+    });
+    syncReminders(); // re-plan the next 12 months every time the app opens
+  }
   if (NATIVE) plugin('App')?.addListener('backButton', () => {
     // Back closes an open panel, then returns to Home, then leaves the app.
     const open = $$('.sheet-bg').pop();
