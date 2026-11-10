@@ -331,6 +331,27 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   const rulesNow = await ip.evaluate(async () => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); }); return new Promise((res) => { const q = db.transaction('config').objectStore('config').get('app'); q.onsuccess = () => res(q.result.rules.map((x) => x.match)); }); });
   ok(JSON.stringify(rulesNow) === '["WOOLWORTHS"]', `"Only this one" doesn't keep a rule (${rulesNow})`);
 
+  // Duplicates left by older imports: the same transfer saved twice (different balances), one copy recategorised
+  await ip.evaluate(async () => {
+    const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); });
+    const rows = await new Promise((res) => { const q = db.transaction('tx').objectStore('tx').get('2026-11'); q.onsuccess = () => res(q.result); });
+    const base = { date: '2026-11-06', amt: -2290, desc: 'ONLINE W3624318944 Linked Acc Trns', merchant: '', acct: '6789', type: '', nabCat: '' };
+    rows.push({ ...base, bal: 100, cat: 'Transfer' }, { ...base, bal: 200, cat: 'Rent', userCat: true }, { ...base, date: '2026-11-08', amt: -200, desc: 'ONLINE Y3863318977 Linked Acc', bal: 1, cat: 'Transfer' }, { ...base, date: '2026-11-09', amt: -200, desc: 'ONLINE Y3863318977 Linked Acc', bal: 2, cat: 'Transfer' });
+    const t = db.transaction('tx', 'readwrite'); t.objectStore('tx').put(rows, '2026-11'); await new Promise((res) => { t.oncomplete = res; });
+  });
+  await ip.reload(); await ip.waitForTimeout(800);
+  await ip.click('.tab[data-tab=spend]'); await ip.selectOption('#monthPick', '2026-11'); await ip.waitForTimeout(500);
+  const countBefore = await ip.evaluate(() => document.querySelector('#s-count').textContent);
+  await ip.click('#s-dupes'); await ip.waitForTimeout(500);
+  const dupText = await ip.textContent('.sheet');
+  ok(dupText.includes('2 transactions appear more than once') && dupText.includes('keeps Rent') && dupText.includes('8 Nov, 9 Nov'), 'duplicates are found, keeping the recategorised copy');
+  await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(700);
+  await ip.click('#s-filter button:text-is("All")'); await ip.waitForTimeout(300);
+  const after = await ip.evaluate(() => [...document.querySelectorAll('#s-tx .tx')].filter((e) => /W3624318944|Y3863318977/.test(e.textContent)).map((e) => e.querySelector('select').value));
+  ok(JSON.stringify(after.sort()) === '["Rent","Transfer"]', `one copy of each is left, with the user's category (${after}; count was ${countBefore})`);
+  await ip.click('#s-dupes'); await ip.waitForTimeout(400);
+  ok((await ip.textContent('.toast')).includes('No duplicates found'), 'running it again finds nothing');
+
   // Category rules: the user's own rule wins over the built-in one
   await ip.click('#settingsBtn'); await ip.click('text=Edit category rules'); await ip.click('text=Add a rule');
   await ip.fill('.sheet:last-child [aria-label="Words to look for"]', 'SPOTIFY'); await ip.selectOption('.sheet:last-child [aria-label="Category"]', 'Entertainment');

@@ -4,7 +4,7 @@ import { fetchAllPrices, looksLikePublishedCsv, SHEET_COLS } from './prices.js';
 import { buildBackup, encryptBackup, decryptBackup, isEncrypted, readBackup, backupFileName } from './backup.js';
 import { planReminders, DEFAULT_REMINDERS, isOurs } from './reminders.js';
 import { simulate, rateAt, rateChangeCost, sortHistory } from './loans.js';
-import { newOnly, parseDate, last4, detectKind, parseOfx, parseQif, readCsv, resolveMapping, applyMapping, mappingOk } from './importer.js';
+import { newOnly, findDuplicates, parseDate, last4, detectKind, parseOfx, parseQif, readCsv, resolveMapping, applyMapping, mappingOk } from './importer.js';
 import { seedCategory } from './merchants.js';
 import { fyOf, fyLabel, fyList, fySummary, matchParcels, unitsHeld, costHeld, totalDivs, frankingCredit, parseDividendRows, taxCsv } from './tax.js';
 
@@ -558,7 +558,7 @@ async function renderSpend() {
   for (const t of show.slice(0, 400)) {
     const sel = el('select', { 'aria-label': 'Category for ' + t.desc }, [...ALL_CATS.filter((k) => partnerOn() || !/Partner/.test(k) || k === t.cat), ...(ALL_CATS.includes(t.cat) ? [] : [t.cat])].map((k) => el('option', { value: k, selected: k === t.cat }, pLabel(k))));
     sel.addEventListener('change', async () => {
-      t.cat = sel.value; t.lumpy = undefined;
+      t.cat = sel.value; t.lumpy = undefined; t.userCat = true; // marks the copy to keep if it's ever found twice
       const key = t.desc.replace(/\d{4,}.*$/, '').trim().slice(0, 24);
       await writeDoc('tx/' + m, { rows: S.tx[m], updatedAt: new Date().toISOString() }); await applySummary(m, false);
       renderSpend();
@@ -1158,6 +1158,33 @@ async function importFiles(files) {
   render(true);
 }
 
+// ---------- duplicates ----------
+// Prefer the copy the user changed: recategorised, tagged, or on a category other than the one an import would give it.
+const keepScore = (t) => (t.userCat ? 4 : 0) + (t.partner || t.lumpy !== undefined ? 2 : 0) + (t.cat !== classify(t, cfg()).cat ? 1 : 0);
+async function duplicatesSheet() {
+  try { const all = await store.getAll('tx'); for (const [k, rows] of Object.entries(all)) if (!S.tx[k] && Array.isArray(rows)) { fixRows(rows); S.tx[k] = rows; } } catch {}
+  const groups = findDuplicates(Object.values(S.tx).flat(), keepScore);
+  if (!groups.length) { toast('No duplicates found'); return; }
+  const when = (t) => `${+t.date.slice(8)} ${MONTHS[+t.date.slice(5, 7) - 1]}`;
+  const body = el('div', { class: 'card' },
+    el('p', { class: 'cap muted', text: `${groups.length} transaction${groups.length === 1 ? '' : 's'} appear more than once: same account, amount and description, within 3 days. Ticked ones keep one copy, the one you changed if you did. Untick any that really happened twice.` }),
+    ...groups.map((g, i) => el('label', { style: 'display:flex;gap:10px;align-items:flex-start;padding-block:9px;border-top:1px solid var(--line)' },
+      el('input', { type: 'checkbox', id: 'dup-' + i, checked: true, style: 'margin-top:4px' }),
+      el('span', { style: 'flex:1;min-width:0' }, el('span', { class: 'row' }, el('span', { text: g.keep.merchant || g.keep.desc }), el('span', { class: 'num', text: $2(g.keep.amt) })),
+        el('small', { class: 'cap muted', style: 'display:block', text: `${g.remove.length + 1} copies · ${[g.keep, ...g.remove].map(when).join(', ')}${g.keep.acct ? ' · …' + g.keep.acct : ''} · keeps ${pLabel(g.keep.cat)}` })))));
+  sheet('Duplicates', body, async () => {
+    const chosen = groups.filter((_, i) => $('#dup-' + i).checked); if (!chosen.length) return;
+    const remove = new Set();
+    for (const g of chosen) for (const r of g.remove) { remove.add(r); if (r.partner && !g.keep.partner) g.keep.partner = true; }
+    for (const [m, rows] of Object.entries(S.tx)) {
+      if (!rows.some((t) => remove.has(t))) continue;
+      S.tx[m] = rows.filter((t) => !remove.has(t));
+      await writeDoc('tx/' + m, { rows: S.tx[m] }); await applySummary(m, false);
+    }
+    render(true); toast(`Removed ${remove.size} extra cop${remove.size === 1 ? 'y' : 'ies'}`);
+  }, 'Remove extra copies');
+}
+
 // ---------- category rules and first-time setup ----------
 function rulesSheet() {
   const items = clone(cfg().rules || []); const box = el('div', {});
@@ -1503,6 +1530,7 @@ document.addEventListener('click', (e) => { if (e.target.closest?.('button.pill,
 $('#monthPick').addEventListener('change', (e) => { S.month = e.target.value; S.draft = null; S.catFilter = null; render(true); });
 $('#pdfIn').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importAccountPdf(f); });
 let sq; $('#s-search').addEventListener('input', (e) => { clearTimeout(sq); sq = setTimeout(() => { S.search = e.target.value; renderSpend(); }, 180); });
+$('#s-dupes').addEventListener('click', duplicatesSheet);
 $('#s-sort').addEventListener('click', () => { S.sort = S.sort === 'amount' ? 'date' : 'amount'; renderSpend(); });
 $('#csvIn').addEventListener('change', (e) => { const fs = [...e.target.files]; e.target.value = ''; if (fs.length) importFiles(fs); });
 $('#divIn').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importDividends(f); });

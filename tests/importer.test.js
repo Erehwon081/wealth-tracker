@@ -105,3 +105,18 @@ test("an older purchase outside the new file's dates never swallows a genuine ne
   // posted after the new file's first date: still the same purchase
   assert.equal(newOnly([tx('2026-11-03', -42.5, 'WOOLWORTHS 1234')], [tx('2026-11-05', -42.5, 'WOOLWORTHS 1234 MELBOURNE AUS'), tx('2026-11-18', -30, 'WOOLWORTHS 5678')]).length, 1);
 });
+
+import { findDuplicates } from '../www/js/importer.js';
+test('finds copies of the same transaction and keeps the one the user changed', () => {
+  const a1 = tx('2026-11-06', -2290, 'ONLINE W3624318944 Linked Acc', { acct: '4049', cat: 'Transfer' });
+  const a2 = tx('2026-11-06', -2290, 'ONLINE  W3624318944 LINKED ACC', { acct: '4049', cat: 'Shopping', userCat: true });
+  const b1 = tx('2026-11-08', -200, 'ONLINE Y3863318977 Linked Acc', { acct: '4417' });
+  const b2 = tx('2026-11-09', -200, 'ONLINE Y3863318977 Linked Acc', { acct: '4417' });
+  const other = tx('2026-11-06', -2290, 'ONLINE W3624318944 Linked Acc', { acct: '9999' }); // different account
+  const far = tx('2026-11-20', -200, 'ONLINE Y3863318977 Linked Acc', { acct: '4417' });  // too far apart
+  const g = findDuplicates([a1, b1, a2, b2, other, far], (t) => (t.userCat ? 2 : 0));
+  assert.equal(g.length, 2);
+  assert.equal(g.find((x) => x.keep.acct === '4049').keep, a2);
+  assert.deepEqual(g.find((x) => x.keep.acct === '4417').remove, [b2]);
+  assert.deepEqual(findDuplicates([a1, other, far]), []);
+});

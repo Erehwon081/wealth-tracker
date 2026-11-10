@@ -45,6 +45,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 
 ### Re-importing and corrections
 - **`newOnly()` in `importer.js` decides what's new.** First exact matches on date, amount, account and normalised description (balance ignored, counted so identical same-day purchases both import). Then pending→posted matches: same account and amount, same first 6 description characters, within 3 days, and inside the new file's date range widened by 3 days. Existing transactions are never changed by an import, so their categories stay.
+- **Duplicates from older imports** (the old match included the running balance, which differed between NAB downloads) are cleaned up by Spending > Check for duplicates: `findDuplicates()` groups same account, amount and normalised description within 3 days; the user confirms; the kept copy is the one with `userCat` (set whenever a category is changed), tags, or a non-default category.
 - **Known trade-off:** two identical purchases (same shop, same amount) within 3 days of each other, straddling the start of a download, count as one.
 - **A category change saves a rule for that shop straight away** (key: description up to the first run of 4+ digits, 24 characters), with "Only this one" to undo it. The old 6-second "Always file?" prompt meant corrections were easily lost.
 

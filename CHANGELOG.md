@@ -4,6 +4,9 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+### Added
+- "Check for duplicates" at the bottom of Spending's transactions finds transactions imported more than once and removes the extra copies after you confirm. It keeps the copy you recategorised or tagged.
+
 ### Fixed
 - Importing a bank file only adds transactions that are new. Ones already in the app keep the category you gave them, even when a later download formats them a little differently or a pending card purchase has since gone through with a new date.
 

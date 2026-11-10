@@ -165,3 +165,22 @@ export function newOnly(existing, incoming, days = 3) {
   }
   return fresh;
 }
+
+// ---------- finding duplicates already saved ----------
+// Groups transactions that look like the same one imported more than once: same account and amount, the same
+// description (ignoring spacing and punctuation), within `days` days. `score` picks the copy to keep (highest wins,
+// earliest date on a tie), so a copy the user recategorised or tagged survives.
+export function findDuplicates(rows, score = () => 0, days = 3) {
+  const by = new Map();
+  for (const t of rows || []) { const k = [t.acct || '', cents(t), normDesc(t.desc)].join('|'); if (!by.has(k)) by.set(k, []); by.get(k).push(t); }
+  const groups = [];
+  for (const list of by.values()) {
+    if (list.length < 2) continue;
+    list.sort((a, b) => a.date.localeCompare(b.date));
+    let cur = [list[0]];
+    const flush = () => { if (cur.length > 1) { const keep = cur.reduce((best, t) => (score(t) > score(best) ? t : best)); groups.push({ keep, remove: cur.filter((t) => t !== keep) }); } };
+    for (const t of list.slice(1)) { if (Date.parse(t.date) - Date.parse(cur[0].date) <= days * DAY) cur.push(t); else { flush(); cur = [t]; } }
+    flush();
+  }
+  return groups.sort((a, b) => b.keep.date.localeCompare(a.keep.date));
+}
