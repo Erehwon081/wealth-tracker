@@ -4,6 +4,8 @@ import { fetchAllPrices, looksLikePublishedCsv, SHEET_COLS } from './prices.js';
 import { buildBackup, encryptBackup, decryptBackup, isEncrypted, readBackup, backupFileName } from './backup.js';
 import { planReminders, DEFAULT_REMINDERS, isOurs } from './reminders.js';
 import { simulate, rateAt, rateChangeCost, sortHistory } from './loans.js';
+import { parseDate, last4, detectKind, parseOfx, parseQif, readCsv, resolveMapping, applyMapping, mappingOk } from './importer.js';
+import { seedCategory } from './merchants.js';
 import { fyOf, fyLabel, fyList, fySummary, matchParcels, unitsHeld, costHeld, totalDivs, frankingCredit, parseDividendRows, taxCsv } from './tax.js';
 
 'use strict';
@@ -100,6 +102,8 @@ const DEFAULT_CONFIG = {
 };
 const cfg = () => ({ ...DEFAULT_CONFIG, ...(S.config || {}), fixed: { ...DEFAULT_CONFIG.fixed, ...(S.config?.fixed || {}) }, goal: { ...DEFAULT_CONFIG.goal, ...(S.config?.goal || {}) }, scenario: { ...DEFAULT_CONFIG.scenario, ...(S.config?.scenario || {}) }, priceSheets: { ...DEFAULT_CONFIG.priceSheets, ...(S.config?.priceSheets || {}) } });
 // Display name for the partner; categories keep their stored keys ("Partner's card" etc.) so backups stay compatible.
+// Partner features are on unless the household is set to just one person (older setups always had a partner).
+const partnerOn = () => cfg().hasPartner !== false;
 const pName = () => (cfg().partnerName || '').trim() || 'Partner';
 const pLabel = (k) => String(k).replace(/Partner/g, pName());
 
@@ -158,45 +162,25 @@ function payoff(balance, ratePct, payment) {
 }
 
 // ---------- CSV ----------
-function parseDate(s) {
-  s = String(s || '').trim(); let m;
-  if ((m = s.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{2,4})$/))) { const mo = MONTHS.findIndex((x) => x.toLowerCase() === m[2].toLowerCase()) + 1; let y = +m[3]; if (y < 100) y += 2000; return `${y}-${String(mo).padStart(2, '0')}-${m[1].padStart(2, '0')}`; }
-  if ((m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/))) { let y = +m[3]; if (y < 100) y += 2000; return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; }
-  if ((m = s.match(/^(\d{4})-(\d{2})-(\d{2})/))) return `${m[1]}-${m[2]}-${m[3]}`;
-  return null;
-}
-const last4 = (s) => (String(s || '').match(/(\d{4})\D*$/) || [])[1] || '';
 function classify(r, c) {
   const det = (r.desc || '').toUpperCase(); const type = (r.type || '').toUpperCase(); const amt = r.amt;
   for (const rule of c.rules || []) if (rule.match && det.includes(String(rule.match).toUpperCase())) return { cat: rule.cat };
-  if ((c.partnerCards || []).includes(r.acct)) return { cat: "Partner's card" };
+  if (partnerOn() && (c.partnerCards || []).includes(r.acct)) return { cat: "Partner's card" };
   if (type.includes('CREDIT CARD PAYMENT') || type.includes('CASH ADVANCE')) return { cat: 'Transfer' };
   if (type === 'FEES' || type.includes('INTEREST')) return { cat: 'Interest & fees' };
   if (type.includes('SALARY') || det.includes('SALARY')) return { cat: 'Income' };
   if (/FIXED REPAYMENT|VARIABLE REPAYMENT|HOME LOAN/.test(det)) return { cat: 'Mortgage' };
   if (/CAR LOAN/.test(det)) return { cat: 'Car loan' };
   if (/CHILD SUPPORT/.test(det)) return { cat: 'Child support' };
-  if (amt > 0 && (c.partnerNames || []).some((p) => det.includes(p.toUpperCase()))) return { cat: det.includes('MORTGAGE') ? 'Partner mortgage share' : 'Partner other' };
+  if (amt > 0 && partnerOn() && (c.partnerNames || []).some((p) => det.includes(p.toUpperCase()))) return { cat: det.includes('MORTGAGE') ? 'Partner mortgage share' : 'Partner other' };
   if (amt < 0 && (c.rentPayees || []).some((p) => det.includes(p.toUpperCase()))) return { cat: 'Rent' };
   if (/LINKED ACC|INTERNET PAYMENT|INTERNAL/.test(det) || r.nabCat === 'Internal transfers') return { cat: 'Transfer' };
   if (amt > 0) return { cat: 'Money in' };
-  if (/VICROADS/.test(det)) return { cat: 'Rego' };
   if (/COUNCIL/.test(det) && Math.abs(amt) > 100) return { cat: 'Council rates' };
-  if (/DRY CLEAN|HAIR/.test(det)) return { cat: /HAIR/.test(det) ? 'Personal care' : 'Services' };
-  if (/SKINCARE/.test(det)) return { cat: 'Personal care' };
-  if (/ANMF/.test(det)) return { cat: 'Other' };
-  return { cat: NAB_MAP[r.nabCat] || (/BAKER|BROTHERS|IGA|COLES|WOOLWORTHS|ALDI/.test(det) ? 'Groceries' : /CAFE|COFFEE|JORGE/.test(det) ? 'Cafes' : /DUMPLING|RAMEN|SUSHI|KITCHEN/.test(det) ? 'Eating out' : 'Other') };
-}
-function normaliseRows(raw) {
-  return raw.map((r) => {
-    const date = parseDate(r['Date'] || r['Transaction Date'] || r['date']);
-    const amt = n(r['Amount'] ?? r['amount'] ?? r['Debit'] ?? 0) || (n(r['Credit']) - n(r['Debit']));
-    const desc = r['Transaction Details'] || r['Description'] || r['Narrative'] || '';
-    const merchant = r['Merchant Name'] || '';
-    const acct = last4(r['Account Number'] || r['Account'] || '');
-    const bal = has(n(r['Balance'])) && r['Balance'] !== '' ? n(r['Balance']) : null;
-    return date ? { date, amt, desc, merchant, acct, bal, type: r['Transaction Type'] || '', nabCat: r['Category'] || '' } : null;
-  }).filter(Boolean);
+  // Built-in merchant rules. These kinds were always checked before the bank's own category, so they still are.
+  const seed = seedCategory(det + ' ' + (r.merchant || ''));
+  if (['Rego', 'Personal care', 'Services', 'Other'].includes(seed)) return { cat: seed };
+  return { cat: NAB_MAP[r.nabCat] || seed || 'Other' };
 }
 const txKey = (t) => [t.date, t.amt.toFixed(2), t.acct, t.desc, t.bal ?? ''].join('|');
 function isLumpy(t) { return t.lumpy ?? (LUMPY_CATS.has(t.cat) || (SPEND_CATS.includes(t.cat) && -t.amt >= 400)); }
@@ -224,28 +208,6 @@ function balancesFromRows(rows) {
     out[a.id] = t.bal;
   }
   return out;
-}
-async function importFiles(files) {
-  const c = cfg(); let all = [];
-  for (const f of files) { try { all = all.concat(normaliseRows(parseCSV(await f.text()))); } catch { toast(`Couldn't read ${f.name}. Export it as CSV from NAB internet banking.`); } }
-  if (!all.length) { toast('No transactions found in those files.'); return; }
-  const byMonth = {};
-  for (const t of all) { const m = t.date.slice(0, 7); (byMonth[m] ||= []).push(t); }
-  let added = 0;
-  for (const [m, rows] of Object.entries(byMonth)) {
-    const existing = await loadTx(m);
-    const seen = new Set(existing.map(txKey));
-    const fresh = rows.filter((t) => !seen.has(txKey(t))).map((t) => ({ ...t, cat: classify(t, c).cat }));
-    added += fresh.length;
-    const merged = existing.concat(fresh).sort((a, b) => b.date.localeCompare(a.date));
-    S.tx[m] = merged;
-    await writeDoc('tx/' + m, { rows: merged, updatedAt: new Date().toISOString() });
-    await applySummary(m, true);
-  }
-  const months = Object.keys(byMonth).sort();
-  S.month = months[months.length - 1]; fillMonthPick();
-  toast(`Imported ${added} new transaction${added === 1 ? '' : 's'} for ${months.map((m) => mLabel(m)).join(', ')}`);
-  render();
 }
 async function applySummary(m, withBalances) {
   const rows = S.tx[m] || []; const s = summarise(rows); const c = cfg();
@@ -327,7 +289,7 @@ async function importAccountPdf(file) {
     body.append(el('div', { class: 'field' }, el('label', { for: 'pdf-' + i }, f.name, el('small', { text: `…${f.id} · ${$2(f.bal)}` })), sel));
     return { f, sel };
   });
-  sheet('Balances from NAB', body, async () => {
+  sheet('Balances from the account list', body, async () => {
     if (S.month !== month) { S.month = month; fillMonthPick(); }
     if (S.view !== 'checkin') go('checkin');
     renderCheckin(true); const bal = S.draft.d.balances; let count = 0;
@@ -454,7 +416,7 @@ function accountSheet(acct) {
     el('h3', { text: 'Rate history', style: 'margin-top:8px' }), el('p', { class: 'cap muted', text: 'Each date the rate changed and the new rate. Start with the rate the loan began on.' }), histBox);
   typeSel.addEventListener('change', () => { loanBox.hidden = !isLoan(typeSel.value); });
   const body = el('div', { class: 'card' },
-    fieldRow('Name', null, el('input', { id: 'f-name', class: 'plain', value: a.name, placeholder: 'e.g. NAB offset' }), 'f-name'),
+    fieldRow('Name', null, el('input', { id: 'f-name', class: 'plain', value: a.name, placeholder: 'e.g. Offset account' }), 'f-name'),
     fieldRow('Type', null, typeSel, 'f-type'),
     fieldRow('Your share', 'Percent you own', el('input', { id: 'f-own', class: 'plain', inputmode: 'decimal', value: a.ownerPct ?? 100 }), 'f-own'),
     fieldRow('Match CSV account', 'Last 4 digits, comma separated', el('input', { id: 'f-match', class: 'plain', value: a.match || '', inputmode: 'numeric' }), 'f-match'),
@@ -529,7 +491,7 @@ function renderCheckin(force) {
     }
   }
   const flow = $('#c-flow'); flow.replaceChildren();
-  const F = [['income', 'Pay received', 'After tax'], ['otherIn', 'Other money in', 'Reimbursements, sales, gifts'], ['rent', 'Rent paid', null], ['carLoan', 'Car loan repayments', null], ['mortgagePaid', 'Mortgage repayments, total', `Your share ${pct(cfg().mortgageShare)}`], ['childSupport', 'Child support', null], ['shonnyCard', pLabel("Partner's card"), 'Not counted as yours'], ['shonnyOnCard', pLabel("Partner's share on your card"), 'Taken off your spending'], ['lumpy', 'One-off and yearly bills', 'Within your card spending']];
+  const F = [['income', 'Pay received', 'After tax'], ['otherIn', 'Other money in', 'Reimbursements, sales, gifts'], ['rent', 'Rent paid', null], ['carLoan', 'Car loan repayments', null], ['mortgagePaid', 'Mortgage repayments, total', `Your share ${pct(cfg().mortgageShare)}`], ['childSupport', 'Child support', null], ...(partnerOn() ? [['shonnyCard', pLabel("Partner's card"), 'Not counted as yours'], ['shonnyOnCard', pLabel("Partner's share on your card"), 'Taken off your spending']] : []), ['lumpy', 'One-off and yearly bills', 'Within your card spending']];
   for (const [k, l, s] of F) { const id = 'f-' + k; const inp = moneyInput(id, d[k], l); inp.querySelector('input').addEventListener('input', (e) => { S.draft.dirty = true; d[k] = e.target.value.trim() === '' ? null : n(e.target.value); renderCheckinResult(); }); flow.append(fieldRow(l, s, inp, id)); }
   const spendTotal = Object.values(d.spend || {}).reduce((s, v) => s + n(v), 0);
   const sid = 'f-spendtotal'; const sInp = moneyInput(sid, spendTotal || null, 'Card spending total');
@@ -555,7 +517,7 @@ async function renderSpend() {
     el('div', { class: 'stat' }, el('span', { class: 'l', text: 'Card spending' }), el('span', { class: 'v', text: $0(f.cardSpend) })),
     el('div', { class: 'stat' }, el('span', { class: 'l', text: 'Your everyday' }), el('span', { class: 'v ' + (f.everyday <= c.everydayTarget ? 'pos' : 'neg'), text: $0(f.everyday) })),
     el('div', { class: 'stat' }, el('span', { class: 'l', text: 'One-offs' }), el('span', { class: 'v', text: $0(f.lumpy) })),
-    el('div', { class: 'stat' }, el('span', { class: 'l', text: pLabel("Partner's card") }), el('span', { class: 'v', text: $0(n(md.shonnyCard)) }))),
+    partnerOn() ? el('div', { class: 'stat' }, el('span', { class: 'l', text: pLabel("Partner's card") }), el('span', { class: 'v', text: $0(n(md.shonnyCard)) })) : null),
     el('div', { class: 'alloc cats', role: 'img', 'aria-label': 'Spending by category' }, Object.entries(md.spend || {}).filter(([, v]) => n(v) > 0).sort((a, b) => b[1] - a[1]).map(([k, v]) => el('i', { style: `width:${(n(v) / Math.max(f.cardSpend, n(c.everydayTarget), 1)) * 100}%;--c:${catColor(k)}`, title: k })), el('i', { class: 'rest' })),
     el('p', { class: 'cap muted', text: f.shonnyOnCard ? `${$0(f.shonnyOnCard)} of the card spending is treated as ${pName()}'s share, from transfers beyond the mortgage share and ${pName()}'s card.` : 'Tap a category on any transaction to fix it. Changes update the month straight away.' }));
   const cats = $('#s-cats'); cats.replaceChildren();
@@ -575,7 +537,7 @@ async function renderSpend() {
   else { subs.append(el('div', { class: 'list' }, rec.map(([k, v, cnt]) => el('div', { class: 'row' }, el('span', { text: k + (cnt > 1 ? ` ×${cnt}` : '') }), el('span', { class: 'num', text: $2(v) }))))); subs.append(el('p', { class: 'cap muted', text: `About ${$0(rec.reduce((s, r) => s + r[1], 0))} a month. Worth a look for anything you no longer use.` })); }
 
   // transactions
-  const filters = [['spend', 'Spending'], ['flow', 'Bills & transfers'], ['shonny', pLabel("Partner's")], ['all', 'All']];
+  const filters = [['spend', 'Spending'], ['flow', 'Bills & transfers'], ...(partnerOn() ? [['shonny', pLabel("Partner's")]] : []), ['all', 'All']];
   const seg = $('#s-filter'); seg.replaceChildren(...filters.map(([k, l]) => el('button', { type: 'button', 'aria-pressed': !S.catFilter && S.filter === k ? 'true' : 'false', text: l, onclick: () => { S.filter = k; S.catFilter = null; renderSpend(); } })));
   const q = S.search.trim().toLowerCase();
   let show = rows.filter((t) => S.catFilter ? t.cat === S.catFilter : (S.filter === 'all' || (S.filter === 'spend' ? SPEND_CATS.includes(t.cat) : S.filter === 'shonny' ? /Partner/.test(t.cat) || t.partner : FLOW_CATS.includes(t.cat) && !/Partner/.test(t.cat))));
@@ -595,7 +557,7 @@ async function renderSpend() {
   if (!rows.length) { list.append(el('div', { class: 'empty' }, el('p', { text: 'No transactions imported for this month. Import the CSVs in Check-in.' }), el('button', { class: 'btn small primary', type: 'button', text: 'Go to Check-in', onclick: () => go('checkin') }))); return; }
   if (!show.length) list.append(el('p', { class: 'cap muted', style: 'padding-block:12px', text: 'No transactions match.' }));
   for (const t of show.slice(0, 400)) {
-    const sel = el('select', { 'aria-label': 'Category for ' + t.desc }, [...ALL_CATS, ...(ALL_CATS.includes(t.cat) ? [] : [t.cat])].map((k) => el('option', { value: k, selected: k === t.cat }, pLabel(k))));
+    const sel = el('select', { 'aria-label': 'Category for ' + t.desc }, [...ALL_CATS.filter((k) => partnerOn() || !/Partner/.test(k) || k === t.cat), ...(ALL_CATS.includes(t.cat) ? [] : [t.cat])].map((k) => el('option', { value: k, selected: k === t.cat }, pLabel(k))));
     sel.addEventListener('change', async () => {
       t.cat = sel.value; t.lumpy = undefined;
       const key = t.desc.replace(/\d{4,}.*$/, '').trim().slice(0, 24);
@@ -608,7 +570,7 @@ async function renderSpend() {
       }
     });
     const lumpyBtn = SPEND_CATS.includes(t.cat) ? el('button', { class: 'pill' + (isLumpy(t) ? ' ok' : ''), type: 'button', text: isLumpy(t) ? 'One-off' : 'Mark one-off', onclick: async () => { t.lumpy = !isLumpy(t); await writeDoc('tx/' + m, { rows: S.tx[m], updatedAt: new Date().toISOString() }); await applySummary(m, false); renderSpend(); } }) : null;
-    const partnerBtn = SPEND_CATS.includes(t.cat) && t.amt < 0 ? el('button', { class: 'pill' + (t.partner ? ' on' : ''), type: 'button', 'aria-pressed': t.partner ? 'true' : 'false', text: t.partner ? `${pName()}'s` : `Mark ${pName()}'s`, onclick: async () => { t.partner = !t.partner || undefined; await writeDoc('tx/' + m, { rows: S.tx[m] }); await applySummary(m, false); renderSpend(); } }) : null;
+    const partnerBtn = partnerOn() && SPEND_CATS.includes(t.cat) && t.amt < 0 ? el('button', { class: 'pill' + (t.partner ? ' on' : ''), type: 'button', 'aria-pressed': t.partner ? 'true' : 'false', text: t.partner ? `${pName()}'s` : `Mark ${pName()}'s`, onclick: async () => { t.partner = !t.partner || undefined; await writeDoc('tx/' + m, { rows: S.tx[m] }); await applySummary(m, false); renderSpend(); } }) : null;
     const excluded = FLOW_CATS.includes(t.cat) && ['Transfer', "Partner's card"].includes(t.cat);
     list.append(el('div', { class: 'tx has-ic' + (excluded ? ' excluded' : '') },
       catIcon(t.cat),
@@ -695,8 +657,8 @@ function renderWealth() {
     ['Keep as is', rent + myHalf, 'Rent plus your share of the mortgage'],
     ['Sell, keep renting', rent, hv ? `Your cash from sale about ${$k(saleNet * share)}` : 'Add house value and mortgage'],
     ['Rent it out jointly', rent + myHalf - leaseNet * share, `At ${$0(n(s.leaseRentWeek))}/wk, before tax deductions`],
-    [`Buy ${pName()} out`, mortPay + (hv + mb > 0 ? ((hv + mb) * (1 - share)) * (0.06 / 12) / (1 - Math.pow(1 + 0.06 / 12, -360)) : 0), `Full mortgage plus a 30-year loan for ${pName()}'s equity at 6%`]
-  ];
+    partnerOn() && [`Buy ${pName()} out`, mortPay + (hv + mb > 0 ? ((hv + mb) * (1 - share)) * (0.06 / 12) / (1 - Math.pow(1 + 0.06 / 12, -360)) : 0), `Full mortgage plus a 30-year loan for ${pName()}'s equity at 6%`]
+  ].filter(Boolean);
   sc.append(el('div', { class: 'list' }, rows.map(([l, v, sub]) => el('div', { class: 'row' }, el('span', {}, l, el('small', { class: 'cap muted', style: 'display:block', text: sub })), el('span', { class: 'num', text: $0(v) + '/mo' })))));
   sc.append(el('p', { class: 'cap muted', text: 'Monthly housing cost to you. Rough numbers to compare options, not financial advice.' }));
 
@@ -719,7 +681,7 @@ function scenSheet() {
   const s = cfg().scenario;
   const body = el('div', { class: 'card' },
     fieldRow('Selling costs', '% of sale price', el('input', { id: 's-sc', class: 'plain', inputmode: 'decimal', value: s.sellCostPct }), 's-sc'),
-    fieldRow('Fixed-rate break cost', 'Ask NAB for a quote', moneyInput('s-bc', s.breakCost, 'Break cost'), 's-bc'),
+    fieldRow('Fixed-rate break cost', 'Ask your lender for a quote', moneyInput('s-bc', s.breakCost, 'Break cost'), 's-bc'),
     fieldRow('Rent if leased', 'Per week', moneyInput('s-rw', s.leaseRentWeek, 'Weekly rent'), 's-rw'),
     fieldRow('Leasing costs', '% of rent: agent, repairs, landlord insurance', el('input', { id: 's-lc', class: 'plain', inputmode: 'decimal', value: s.leaseCostPct }), 's-lc'));
   sheet('House option assumptions', body, () => saveConfig({ scenario: { sellCostPct: n($('#s-sc').value), breakCost: n($('#s-bc').value), leaseRentWeek: n($('#s-rw').value), leaseCostPct: n($('#s-lc').value) } }));
@@ -993,7 +955,9 @@ async function loadSample() {
 
 function settingsSheet() {
   const c = cfg();
+  const hhSel = el('select', { id: 'st-hh', class: 'month-pick' }, el('option', { value: 'solo', selected: !partnerOn() }, 'Just me'), el('option', { value: 'partner', selected: partnerOn() }, 'Me and a partner'));
   const household = el('div', { class: 'card' }, el('h2', { text: 'Household' }),
+    fieldRow('Who is this for?', 'Partner settings only show for two', hhSel, 'st-hh'),
     fieldRow('Partner display name', 'Shown wherever the app says Partner', el('input', { id: 'st-pname', class: 'plain', value: c.partnerName || '', placeholder: 'Partner', autocomplete: 'off' }), 'st-pname'),
     fieldRow('Partner card, last 4 digits', 'Comma separated', el('input', { id: 'st-pcards', class: 'plain', inputmode: 'numeric', value: listTxt(c.partnerCards) }), 'st-pcards'),
     fieldRow('Partner names in transfers', 'As they appear in bank descriptions, comma separated', el('input', { id: 'st-pnames', class: 'plain', value: listTxt(c.partnerNames), autocapitalize: 'characters' }), 'st-pnames'),
@@ -1003,12 +967,20 @@ function settingsSheet() {
     el('p', { class: 'cap muted', text: 'Cards, names and payees sort transactions as they are imported. Change a category on a transaction to fix one already imported.' }),
     el('div', { class: 'btns' }, el('button', { class: 'btn primary small', type: 'button', text: 'Save household', onclick: async () => {
       const ms = n($('#st-ms').value); if (ms < 0 || ms > 100) { toast('Mortgage share is a percent from 0 to 100'); return; }
-      await saveConfig({ partnerName: $('#st-pname').value.trim(), partnerCards: listVal($('#st-pcards').value).map((x) => x.replace(/\D/g, '').slice(-4)).filter(Boolean), partnerNames: listVal($('#st-pnames').value), rentPayees: listVal($('#st-rent').value), mortgageShare: ms / 100, everydayTarget: n($('#st-every').value) });
+      await saveConfig({ hasPartner: $('#st-hh').value === 'partner', partnerName: $('#st-pname').value.trim(), partnerCards: listVal($('#st-pcards').value).map((x) => x.replace(/\D/g, '').slice(-4)).filter(Boolean), partnerNames: listVal($('#st-pnames').value), rentPayees: listVal($('#st-rent').value), mortgageShare: ms / 100, everydayTarget: n($('#st-every').value) });
       toast('Household saved');
     } })));
 
   const linkRow = (kind) => { const id = 'st-ps-' + kind; const inp = el('input', { id, class: 'plain url', type: 'url', inputmode: 'url', value: c.priceSheets[kind] || '', placeholder: 'Paste the CSV link here', autocomplete: 'off', spellcheck: 'false' });
     return el('div', { class: 'field wide' }, el('label', { for: id }, `${SHEET_COLS[kind].label} tab`), inp); };
+  const partnerRows = [...household.querySelectorAll('.field')].filter((f) => /st-p(name|cards|names)/.test(f.querySelector('input')?.id || ''));
+  const syncHh = () => partnerRows.forEach((f) => { f.hidden = hhSel.value !== 'partner'; }); hhSel.addEventListener('change', syncHh); syncHh();
+  const layouts = c.importProfiles || [];
+  const importing = el('div', { class: 'card' }, el('h2', { text: 'Importing' }),
+    el('p', { class: 'cap muted', text: `Category rules file transactions by words in their description. You have ${(c.rules || []).length} of your own, on top of the built-in ones for common shops.` }),
+    el('p', { class: 'cap muted', text: layouts.length ? `Remembered file layouts: ${layouts.map((x) => x.name).join(', ')}.` : 'No remembered file layouts yet. The app asks once when it sees a new layout.' }),
+    el('div', { class: 'btns' }, el('button', { class: 'btn small', type: 'button', text: 'Edit category rules', onclick: rulesSheet }),
+      layouts.length ? el('button', { class: 'btn small', type: 'button', text: 'Forget remembered layouts', onclick: async (e) => { await saveConfig({ importProfiles: [] }); e.target.remove(); toast('The app will ask again next time'); } }) : null));
   const prices = el('div', { class: 'card' }, el('h2', { text: 'Price sheet links' }),
     el('p', { class: 'cap muted', text: 'In Google Sheets, choose File > Share > Publish to web, pick a tab, choose Comma-separated values (.csv), then Publish and paste the link here. Do this for each of the ETFs, Stocks and Crypto tabs. Anyone with a published link can read that tab.' }),
     ...Object.keys(SHEET_COLS).map(linkRow),
@@ -1041,7 +1013,7 @@ function settingsSheet() {
   const drawTheme = () => themeSeg.replaceChildren(...[['system', 'Follow phone'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => el('button', { type: 'button', 'aria-pressed': window.wtTheme?.get() === k ? 'true' : 'false', text: l, onclick: () => { window.wtTheme?.set(k); drawTheme(); render(); } })));
   drawTheme();
   const appearance = el('div', { class: 'card' }, el('h2', { text: 'Appearance' }), themeSeg);
-  sheet('Settings', el('div', { style: 'display:flex;flex-direction:column;gap:var(--s3)' }, appearance, remindersCard(), household, prices, backup, about));
+  sheet('Settings', el('div', { style: 'display:flex;flex-direction:column;gap:var(--s3)' }, appearance, remindersCard(), household, importing, prices, backup, about));
 }
 
 function renderFirstRun(host) {
@@ -1049,9 +1021,10 @@ function renderFirstRun(host) {
   if (host.hidden) return;
   host.append(el('div', { class: 'empty' },
     el('h2', { text: 'Welcome to Wealth Tracker' }),
-    el('p', { text: 'Everything stays on this phone. Start with made-up numbers to look around, or bring in your backup.' }),
+    el('p', { text: 'Everything stays on this phone. Set up your accounts, look around with made-up numbers, or bring in a backup.' }),
     el('div', { class: 'btns', style: 'justify-content:center' },
-      el('button', { class: 'btn primary', type: 'button', text: 'Load sample data', onclick: loadSample }),
+      el('button', { class: 'btn primary', type: 'button', text: 'Set up', onclick: setupSheet }),
+      el('button', { class: 'btn', type: 'button', text: 'Load sample data', onclick: loadSample }),
       el('button', { class: 'btn', type: 'button', 'data-pick': 'restoreIn', text: 'Restore a backup' }))));
 }
 function renderBackupNudge(host) {
@@ -1060,6 +1033,162 @@ function renderBackupNudge(host) {
   const last = S.meta.lastBackup;
   host.append(el('div', { class: 'row' }, el('span', { text: last ? `Your last backup was ${fmtDate(last)}. Worth making a fresh one.` : "You haven't backed up yet. A backup keeps your data safe if this phone is lost." }),
     el('button', { class: 'btn small', type: 'button', text: 'Back up', onclick: settingsSheet })));
+}
+
+// ---------- importing bank files ----------
+// Opens a sheet and resolves with getValue()'s result when confirmed, or null if it is closed. getValue returns undefined to keep it open.
+function askSheet(title, body, getValue, label) {
+  return new Promise((resolve) => {
+    let settled = false; const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
+    sheet(title, body, () => { const v = getValue(); if (v === undefined) return false; finish(v); }, label);
+    const bg = $$('.sheet-bg').pop(); new MutationObserver((_, o) => { if (!bg.isConnected) { o.disconnect(); finish(null); } }).observe(document.body, { childList: true });
+  });
+}
+const acctKeys = (a) => (a.match || '').split(/[,\s]+/).filter(Boolean);
+const acctFor = (key) => S.accounts.find((a) => acctKeys(a).includes(key));
+const colName = (i) => String.fromCharCode(65 + (i % 26));
+// Asks which column is which for a CSV layout the app hasn't seen, and remembers the answer for next time.
+function askMapping(fileName, rows, guess) {
+  const m = { header: guess.mapping.header, flip: false, map: { ...guess.mapping.map } };
+  const ncol = Math.max(...rows.slice(0, 10).map((r) => r.length)); const sample = rows.slice(0, 4);
+  const opts = () => [[-1, 'Not in this file'], ...Array.from({ length: ncol }, (_, i) => [i, `${colName(i)}: ${String(rows[0][i] ?? '').slice(0, 22) || 'empty'}`])];
+  const preview = el('div', {}); const fields = el('div', {});
+  const drawPreview = () => {
+    const out = mappingOk(m) ? applyMapping(rows, m).slice(0, 3) : [];
+    preview.replaceChildren(el('h3', { text: 'How it will read', style: 'margin-top:8px' }), ...(out.length ? out.map((t) => el('div', { class: 'row', style: 'padding-block:4px' }, el('span', { text: `${t.date.slice(8)} ${MONTHS[+t.date.slice(5, 7) - 1]} · ${t.desc}` }), el('span', { class: 'num ' + (t.amt > 0 ? 'pos' : ''), text: $2(t.amt) })))
+      : [el('p', { class: 'cap muted', text: 'Choose the date, description and amount columns to see a preview.' })]),
+      out.length ? el('p', { class: 'cap muted', text: 'Spending should show with a minus sign, and money in without one.' }) : null);
+  };
+  const LABELS = [['date', 'Date', null], ['desc', 'Description', null], ['amount', 'Amount', 'One column with money in and out'], ['debit', 'Money out', 'If the file has separate columns'], ['credit', 'Money in', 'If the file has separate columns'], ['balance', 'Balance', 'Running balance, if there is one'], ['account', 'Account number', 'If there is one']];
+  const drawFields = () => fields.replaceChildren(...LABELS.map(([f, l, sub]) => fieldRow(l, sub, el('select', { id: 'map-' + f, class: 'month-pick', onchange: (e) => { m.map[f] = +e.target.value; drawPreview(); } }, opts().map(([v, t]) => el('option', { value: v, selected: m.map[f] === v }, t))), 'map-' + f)));
+  drawFields(); drawPreview();
+  const check = (id, label, key) => el('label', { style: 'display:flex;gap:8px;align-items:center;padding-block:6px' }, el('input', { id, type: 'checkbox', checked: m[key], onchange: (e) => { m[key] = e.target.checked; drawFields(); drawPreview(); } }), label);
+  const body = el('div', { class: 'card' },
+    el('p', { class: 'cap muted', text: `${fileName} is in a layout the app hasn't seen. Check which column is which. You'll only be asked once for this layout.` }),
+    el('div', { style: 'overflow-x:auto' }, el('table', { class: 'lots' }, el('thead', {}, el('tr', {}, Array.from({ length: ncol }, (_, i) => el('th', { text: colName(i), style: 'text-align:left' })))), el('tbody', {}, sample.map((r) => el('tr', {}, Array.from({ length: ncol }, (_, i) => el('td', { text: String(r[i] ?? '').slice(0, 28), style: 'text-align:left' }))))))),
+    fields,
+    check('map-header', 'The first row is headings, not a transaction', 'header'),
+    check('map-flip', 'Spending shows as positive numbers in this file', 'flip'),
+    preview,
+    fieldRow('Name for this bank', 'Optional', el('input', { id: 'map-name', class: 'plain', placeholder: 'e.g. My bank' }), 'map-name'));
+  return askSheet('Check the columns', body, () => {
+    if (!mappingOk(m) || !applyMapping(rows, m).length) { toast('Choose the date, description and amount columns'); return undefined; }
+    const profiles = (cfg().importProfiles || []).filter((p) => p.signature !== guess.signature);
+    saveConfig({ importProfiles: [...profiles, { signature: guess.signature, name: $('#map-name').value.trim() || 'Saved layout', mapping: m }] });
+    return m;
+  }, 'Use these columns');
+}
+// For files that don't say which account they're from (QIF, some CSVs).
+async function askAccount(fileName) {
+  const sel = el('select', { id: 'ia-acct', class: 'month-pick' }, S.accounts.filter((a) => ['cash', 'offset', 'card', 'mortgage', 'loan'].includes(a.type)).map((a) => el('option', { value: a.id }, a.name)), el('option', { value: '__new' }, 'A new account'));
+  const body = el('div', { class: 'card' }, el('p', { class: 'cap muted', text: `${fileName} doesn't say which account it's from.` }), fieldRow('Account', null, sel, 'ia-acct'),
+    fieldRow('Name, if new', null, el('input', { id: 'ia-name', class: 'plain', placeholder: 'e.g. Everyday account' }), 'ia-name'));
+  const pick = await askSheet('Which account is this?', body, () => ({ id: $('#ia-acct').value, name: $('#ia-name').value.trim() }), 'Continue');
+  if (!pick) return null;
+  let a = S.accounts.find((x) => x.id === pick.id);
+  if (!a) { a = { id: 'a' + Date.now().toString(36), name: pick.name || 'Bank account', type: 'cash', ownerPct: 100, order: S.accounts.length }; S.accounts.push(a); }
+  let key = acctKeys(a)[0]; if (!key) { key = a.id; a.match = key; }
+  await writeDoc('accounts/' + a.id, { ...a });
+  return key;
+}
+// Account numbers in the files that aren't linked to an account yet: link them, add them, or stop asking.
+async function linkAccounts(groups) {
+  const c = cfg(); const skip = new Set([...(c.partnerCards || []), ...(c.ignoredAccts || [])]); const seen = new Map();
+  for (const g of groups) if (g.acct && !skip.has(g.acct) && !acctFor(g.acct) && !seen.has(g.acct)) seen.set(g.acct, g);
+  if (!seen.size) return;
+  const body = el('div', { class: 'card' }, el('p', { class: 'cap muted', text: 'These account numbers are new. Link each one so its balance and transactions land in the right place.' }));
+  const picks = [...seen.values()].map((g, i) => {
+    const sel = el('select', { class: 'month-pick', id: 'la-' + i, 'aria-label': 'Link account ending ' + g.acct }, el('option', { value: '__new' }, 'Add as a new account'), S.accounts.filter((a) => !['invest', 'super', 'property', 'vehicle', 'other'].includes(a.type)).map((a) => el('option', { value: a.id }, a.name)), el('option', { value: '__ignore' }, "Don't track this account"));
+    body.append(fieldRow(`Account ending ${g.acct}`, `${g.rows.length} transaction${g.rows.length === 1 ? '' : 's'}${g.balance != null ? ' · balance ' + $2(g.balance) : ''}`, sel, 'la-' + i));
+    return { g, sel };
+  });
+  const ok = await askSheet('New accounts in these files', body, () => picks.map(({ g, sel }) => ({ g, v: sel.value })), 'Continue');
+  if (!ok) return;
+  const ignored = [...(c.ignoredAccts || [])];
+  for (const { g, v } of ok) {
+    if (v === '__ignore') { ignored.push(g.acct); continue; }
+    if (v === '__new') { const a = { id: 'a' + Date.now().toString(36) + g.acct, name: (g.kind === 'card' ? 'Credit card …' : 'Account …') + g.acct, type: g.kind === 'card' ? 'card' : 'cash', ownerPct: 100, match: g.acct, order: S.accounts.length }; S.accounts.push(a); await writeDoc('accounts/' + a.id, a); continue; }
+    const a = S.accounts.find((x) => x.id === v); if (a) { a.match = [...acctKeys(a), g.acct].join(','); await writeDoc('accounts/' + a.id, { ...a }); }
+  }
+  if (ignored.length !== (c.ignoredAccts || []).length) await saveConfig({ ignoredAccts: ignored });
+}
+// Reads one file into groups of transactions, one group per account.
+async function readBankFile(f) {
+  const text = await f.text(); const kind = detectKind(f.name, text);
+  if (kind === 'ofx') return parseOfx(text);
+  if (kind === 'qif') return parseQif(text);
+  const rows = readCsv(text); if (rows.length < 1) return [];
+  let r = resolveMapping(rows, cfg().importProfiles);
+  if (r.source === 'guess') { const m = await askMapping(f.name, rows, r); if (!m) return null; r = { ...r, mapping: m }; }
+  const by = new Map(); for (const t of applyMapping(rows, r.mapping)) { if (!by.has(t.acct)) by.set(t.acct, []); by.get(t.acct).push(t); }
+  return [...by.entries()].map(([acct, list]) => { const withBal = list.filter((t) => t.bal != null); const newest = withBal.length ? withBal.reduce((a, b) => (b.date > a.date ? b : a)) : null; return { acct, kind: 'cash', balance: newest ? newest.bal : null, rows: list }; });
+}
+async function importFiles(files) {
+  let all = []; const groups = [];
+  for (const f of files) {
+    let gs; try { gs = await readBankFile(f); } catch { gs = []; }
+    if (gs === null) continue; // the user closed the column check
+    if (!gs.some((g) => g.rows.length)) { toast(`No transactions found in ${f.name}. Use your bank's CSV, OFX or QIF download.`); continue; }
+    for (const g of gs) {
+      if (!g.rows.length) continue;
+      if (!g.acct) { const key = await askAccount(f.name); if (key === null) continue; g.acct = key; g.rows.forEach((t) => { t.acct = key; }); }
+      groups.push(g); all = all.concat(g.rows);
+    }
+  }
+  if (!all.length) return;
+  await linkAccounts(groups);
+  const c = cfg(); const byMonth = {};
+  for (const t of all) { const m = t.date.slice(0, 7); (byMonth[m] ||= []).push(t); }
+  let added = 0;
+  for (const [m, rows] of Object.entries(byMonth)) {
+    const existing = await loadTx(m);
+    const seen = new Set(existing.map(txKey));
+    const fresh = rows.filter((t) => !seen.has(txKey(t))).map((t) => ({ ...t, cat: classify(t, c).cat }));
+    added += fresh.length;
+    const merged = existing.concat(fresh).sort((a, b) => b.date.localeCompare(a.date));
+    S.tx[m] = merged;
+    await writeDoc('tx/' + m, { rows: merged, updatedAt: new Date().toISOString() });
+    await applySummary(m, true);
+  }
+  const months = Object.keys(byMonth).sort();
+  S.month = months[months.length - 1]; fillMonthPick();
+  toast(`Imported ${added} new transaction${added === 1 ? '' : 's'} for ${months.map((m) => mLabel(m)).join(', ')}`);
+  render(true);
+}
+
+// ---------- category rules and first-time setup ----------
+function rulesSheet() {
+  const items = clone(cfg().rules || []); const box = el('div', {});
+  const draw = () => box.replaceChildren(...items.map((r, i) => el('div', { style: 'display:flex;gap:8px;padding-block:6px;align-items:center' },
+    el('input', { class: 'plain', style: 'flex:1;min-width:0', value: r.match || '', placeholder: 'Words in the description', 'aria-label': 'Words to look for', autocapitalize: 'characters', oninput: (e) => { r.match = e.target.value; } }),
+    el('select', { class: 'month-pick', style: 'flex:0 0 8.5rem;min-width:0', 'aria-label': 'Category', onchange: (e) => { r.cat = e.target.value; } }, ALL_CATS.filter((k) => partnerOn() || !/Partner/.test(k) || k === r.cat).map((k) => el('option', { value: k, selected: k === r.cat }, pLabel(k)))),
+    el('button', { class: 'btn small', type: 'button', text: '×', 'aria-label': 'Remove rule', onclick: () => { items.splice(i, 1); draw(); } }))),
+    el('button', { class: 'btn small', type: 'button', text: 'Add a rule', onclick: () => { items.push({ match: '', cat: 'Other' }); draw(); } }));
+  draw();
+  sheet('Category rules', el('div', { class: 'card' }, el('p', { class: 'cap muted', text: 'When a description contains these words, the transaction is filed under the category you choose. Your rules come before the built-in ones, and apply to new imports.' }), box),
+    () => saveConfig({ rules: items.map((r) => ({ match: String(r.match || '').trim(), cat: r.cat })).filter((r) => r.match) }));
+}
+const SETUP_ACCOUNTS = [['Everyday account', 'cash', true], ['Savings account', 'cash', true], ['Credit card', 'card', true], ['Super', 'super', true], ['Shares, ETFs and crypto', 'invest', false], ['Home', 'property', false], ['Home loan', 'mortgage', false], ['Offset account', 'offset', false], ['Car', 'vehicle', false], ['Car loan', 'loan', false]];
+function setupSheet() {
+  const hh = el('select', { id: 'su-hh', class: 'month-pick' }, el('option', { value: 'solo' }, 'Just me'), el('option', { value: 'partner' }, 'Me and a partner'));
+  const pRow = fieldRow("Partner's name", 'Shown in the app', el('input', { id: 'su-pname', class: 'plain', autocomplete: 'off' }), 'su-pname'); pRow.hidden = true;
+  hh.addEventListener('change', () => { pRow.hidden = hh.value !== 'partner'; });
+  const body = el('div', { class: 'card' },
+    el('p', { class: 'cap muted', text: 'Two quick questions, then you can import a file from your bank. You can change all of this later.' }),
+    fieldRow('Who is this for?', null, hh, 'su-hh'), pRow,
+    el('h3', { text: 'What do you want to track?', style: 'margin-top:8px' }),
+    ...SETUP_ACCOUNTS.map(([name, , on], i) => el('label', { style: 'display:flex;gap:10px;align-items:center;padding-block:7px;border-top:1px solid var(--line)' }, el('input', { type: 'checkbox', id: 'su-a' + i, checked: on }), name)),
+    el('p', { class: 'cap muted', text: 'Add, rename or remove accounts any time in Wealth.' }));
+  sheet('Set up Wealth Tracker', body, async () => {
+    const partner = hh.value === 'partner';
+    const accounts = SETUP_ACCOUNTS.filter((_, i) => $('#su-a' + i).checked).map(([name, type], i) => ({ id: 'a' + Date.now().toString(36) + i, name, type, ownerPct: 100, order: i, ...(type === 'invest' ? { note: 'Value comes from the Invest tab' } : {}) }));
+    if (!accounts.length) { toast('Choose at least one thing to track'); return false; }
+    const config = { hasPartner: partner, partnerName: partner ? $('#su-pname').value.trim() : '', partnerCards: [], partnerNames: [], rentPayees: [], rules: [], mortgageShare: partner ? 0.5 : 1, childSupport: 0, everydayTarget: 3000, fixed: { rent: 0, carLoan: 0 }, sinking: [], goal: { cash: 10000 } };
+    try { await store.replaceAll({ config, accounts, months: {}, tx: {}, holdings: [] }); } catch { toast("Couldn't save. Try again."); return false; }
+    await setMeta('since', new Date().toISOString());
+    await reloadAll(); S.month = thisMonth(); fillMonthPick(); go('checkin');
+    toast('All set. Import a file from your bank, or key in your balances.');
+  }, 'Start');
 }
 
 // ---------- mortgage what-if ----------
@@ -1164,7 +1293,7 @@ function renderLedger() {
       row(LEDGER_TYPES.insurance, hasInsurer ? null : 'Add your insurer under Edit to count it', $0(t.insurance)),
       row(LEDGER_TYPES.repairs, 'Spending filed as Home repairs', $0(t.repairs))),
     el('div', { class: 'row', style: 'padding-top:8px;border-top:1px solid var(--line)' }, el('strong', { text: 'Total paid' }), el('strong', { class: 'num', text: $0(t.total) })),
-    el('div', { class: 'row' }, el('span', {}, `${pName()}'s contributions`, el('small', { class: 'cap muted', style: 'display:block', text: 'Mortgage-share transfers to you' })), el('span', { class: 'num', text: '−' + $0(t.partner).replace('−', '') })),
+    !partnerOn() ? null : el('div', { class: 'row' }, el('span', {}, `${pName()}'s contributions`, el('small', { class: 'cap muted', style: 'display:block', text: 'Mortgage-share transfers to you' })), el('span', { class: 'num', text: '−' + $0(t.partner).replace('−', '') })),
     el('div', { class: 'row' }, el('strong', { text: 'Your net contribution' }), el('strong', { class: 'num', text: $0(t.net) })),
     el('p', { class: 'cap muted', text: 'From your check-ins and imported transactions, plus anything you add under Edit. The interest split is an estimate from the loan balance and rate each month.' }));
   if (!allTxDone) ensureAllTx().then(() => { if (S.view === 'wealth') renderLedger(); });

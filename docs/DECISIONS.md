@@ -7,7 +7,8 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 - **Live prices are unverified against a real sheet.** The cloud sandbox blocks docs.google.com, so cross-origin fetches of the published CSV were never tested. The user hasn't yet pasted real links (they once saved three empty boxes). If Refresh prices says "Couldn't reach Google Sheets", try Google's other CSV link format (`/gviz/tq?tqx=out:csv&sheet=<tab>`, which needs link sharing on), or an Apps Script web app returning JSON. Don't add a proxy.
 - **Untested on a real phone:** Back up now through the share sheet, the back-button order, status bar icon colour per theme, and vibration. The user has installed the APK and reported layout issues only so far.
 - **Roadmap items 3, 4 and 5 are untested with the user's real data.** They need: each mortgage split's linked offset and rate history entered (Wealth > tap the loan in Accounts and loans), the building insurer named in the ledger's Edit, and dividends entered or imported. Ask for the headers of the user's dividend sheet tab if the CSV import doesn't read it.
-- **Roadmap item 6 (bank import) is next.** Agree the design with the user before building; they want it simple to use and maintain, with no cloud or API connections.
+- **Bank import is only tested with NAB CSVs and made-up OFX, QIF and CSV files.** Add built-in profiles for other banks only from real, scrubbed sample exports, and test OFX/QIF against a real bank download when one is available.
+- **The first user's own merchant words are still in the built-in rules** (BAKER, BROTHERS, JORGE, ANMF, flagged in `merchants.js`). Review them before selling.
 - **Version numbering:** `1.0.<run number>` skips numbers because branch builds use them too. A version set in `package.json` (minor for features, patch for fixes), with `versionCode` still taken from the run number, was suggested but not decided.
 - **Node 20 deprecation warnings** in Actions: `actions/upload-artifact@v4`, and `upload-pages-artifact@v3` / `deploy-pages@v4` in `pages.yml`. Bump them when newer majors are available.
 
@@ -32,6 +33,15 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 - **Plugins via `window.Capacitor.Plugins`**: the native bridge injects them, so no bundler or core script is needed.
 - **Body top padding equals the status-bar inset**: without it the sticky header was pushed down over the first card in the app.
 - **APK links must be opened in Chrome itself**: the Claude app's in-app browser stalls on APK downloads.
+
+### Bank import (roadmap 6)
+- **`www/js/importer.js` (pure, unit tested) reads every file into one shape** `{date, amt, desc, merchant, acct, bal, type, nabCat}`. OFX/QFX and QIF are parsed directly; CSVs go through `resolveMapping`: a built-in profile (matched by required header names, mapped by name so column order doesn't matter), then a saved user profile (matched by `signature`: the lower-cased header row, or column count if there's no header), then `guessMapping` for the user to confirm.
+- **Why profiles are optional:** if a bank changes its CSV, the guided mapping still works and the user re-confirms once. The app never depends on a profile being up to date.
+- **OFX closing balance** is put on the newest transaction's `bal`, so the existing month-end balance logic (`balancesFromRows`) picks it up unchanged.
+- **Accounts:** files are grouped by account number. Unknown numbers ask to be linked, added or ignored (`config.ignoredAccts`); files with no number ask for an account and use its match key (the account id if it has none).
+- **Categorising:** user rules → household (partner cards, names, rent) → transfers and loans → `seedCategory` (`www/js/merchants.js`) for Rego/Personal care/Services/Other → the bank's own category (NAB) → `seedCategory` for everything else → Other. This kept the old order for the first user's NAB imports.
+- **Partner features are on unless `config.hasPartner === false`** (only the setup walkthrough or the Household setting sets that), so existing data is unchanged.
+- **The file picker has no type filter** because Android greys out OFX and QIF files it has no type for.
 
 ### Loans, ledger and tax (roadmap 3–5)
 - **Pure maths in `www/js/loans.js` and `www/js/tax.js`, unit tested.** `simulate()` runs loans month by month; extras go to the highest-rate loan first; a shared offset is counted once. Freed-up repayments are not rolled into other loans, in either the baseline or the scenario.
@@ -61,6 +71,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 - **9 Nov 2026**: Built the PWA from the artifact, deployed to Pages. Partner tagging, expected pay, the new look, motion and swipe, the first Android releases (1.0.4, 1.0.6, 1.0.8).
 - **10 Nov 2026**: Release notes from the changelog (1.0.10). Added `CLAUDE.md` and this file. The user plans one Claude Code chat per release, grouped in a Claude project.
 - **10 Nov 2026**: The user confirmed on their phone (1.0.13) that reminders work: the permission prompt, delivery, the status bar icon and tap-to-open Check-in. Chart dragging no longer brings up the copy menu, and the Spending and chart fixes are good. Not yet checked: delivery after a phone restart.
+- **10 Nov 2026**: Built roadmap item 6 steps 1–5 (any-bank import, merchant rules, optional partner, setup, wording). NAB is the only built-in profile; the user had no other banks' exports.
 - **10 Nov 2026**: The user cancelled roadmap item 2 (bills and set-asides). Items 1, 3, 4 and 5 are done. Item 6 is the only one left.
 - **10 Nov 2026**: Built roadmap items 3, 4 and 5 (mortgage what-if, house ledger, tax year) in one go, with sample data extended to show them.
 - **10 Nov 2026**: Added `docs/ROADMAP.md` (six features, agreed order). Built roadmap item 1, reminder notifications. Removed the Spending import card. Fixed cash flow chart label overlap.
