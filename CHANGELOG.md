@@ -4,6 +4,8 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+## 1.0.13 (10 Nov 2026)
+
 ### Added
 - Reminder notifications in the Android app (Settings > Reminders). Get a month-end check-in reminder on the last day of the month, the 1st, or a date you choose, at a time you choose. Tapping it opens Check-in. There's also an optional backup reminder 30 days after your last backup. Reminders are set on your phone, and nothing is sent anywhere.
 
