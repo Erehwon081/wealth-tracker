@@ -347,8 +347,8 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   ok(dupText.includes('2 transactions appear more than once') && dupText.includes('keeps Rent') && dupText.includes('8 Nov, 9 Nov'), 'duplicates are found, keeping the recategorised copy');
   await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(700);
   await ip.click('#s-filter button:text-is("All")'); await ip.waitForTimeout(300);
-  const after = await ip.evaluate(() => [...document.querySelectorAll('#s-tx .tx')].filter((e) => /W3624318944|Y3863318977/.test(e.textContent)).map((e) => e.querySelector('select').value));
-  ok(JSON.stringify(after.sort()) === '["Rent","Transfer"]', `one copy of each is left, with the user's category (${after}; count was ${countBefore})`);
+  const leftover = await ip.evaluate(() => [...document.querySelectorAll('#s-tx .tx')].filter((e) => /W3624318944|Y3863318977/.test(e.textContent)).map((e) => e.querySelector('select').value));
+  ok(JSON.stringify(leftover.sort()) === '["Rent","Transfer"]', `one copy of each is left, with the user's category (${leftover}; count was ${countBefore})`);
   await ip.click('#s-dupes'); await ip.waitForTimeout(400);
   ok((await ip.textContent('.toast')).includes('No duplicates found'), 'running it again finds nothing');
 
