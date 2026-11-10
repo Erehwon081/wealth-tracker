@@ -13,6 +13,7 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 ### Fixed
 - On the Home cash flow chart, a negative month's amount no longer sits on top of the month name.
 - The last two month labels on the net worth chart no longer crowd together.
+- Dragging a finger along a chart no longer brings up Android's copy menu or selects the text below.
 
 ## 1.0.10 (10 Nov 2026)
 

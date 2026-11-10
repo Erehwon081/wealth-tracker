@@ -382,6 +382,7 @@ function lineChart(host, pts, opts = {}) {
     };
     const hide = () => { g.setAttribute('visibility', 'hidden'); lt.setAttribute('visibility', 'visible'); cur = -1; };
     svg.style.touchAction = 'pan-y';
+    svg.addEventListener('contextmenu', (e) => e.preventDefault()); // no long-press menu while scrubbing
     svg.addEventListener('pointerdown', (e) => { svg.setPointerCapture?.(e.pointerId); show(e.clientX); });
     svg.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse' || e.buttons) show(e.clientX); });
     svg.addEventListener('pointerup', hide); svg.addEventListener('pointercancel', hide); svg.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') hide(); });

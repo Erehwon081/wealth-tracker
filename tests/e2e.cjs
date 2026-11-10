@@ -212,6 +212,15 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   });
   ok(overlaps.count > 0 && overlaps.n === 0, `cash flow labels don't overlap (${JSON.stringify(overlaps)})`);
 
+  // Dragging on a chart must not select text or open the long-press menu
+  const sel = await p.evaluate(() => {
+    const svg = document.querySelector('#h-nwchart svg'); const cs = getComputedStyle(svg);
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true }); svg.dispatchEvent(ev);
+    const tab = getComputedStyle(document.querySelector('.tab'));
+    return { chart: cs.userSelect || cs.webkitUserSelect, tab: tab.userSelect || tab.webkitUserSelect, menuBlocked: ev.defaultPrevented };
+  });
+  ok(sel.chart === 'none' && sel.tab === 'none' && sel.menuBlocked, `charts and tabs can't be text-selected and the chart blocks the long-press menu (${JSON.stringify(sel)})`);
+
   // Reminders, as in the Android app: a stand-in for Capacitor's notification plugin records what gets scheduled
   const nctx = await browser.newContext({ ...devices['Pixel 7'] });
   await nctx.addInitScript(() => {
