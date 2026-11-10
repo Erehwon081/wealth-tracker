@@ -30,6 +30,8 @@ jobs:
       VERSION: 1.0.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v5
         with:
@@ -98,13 +100,32 @@ jobs:
           name: wealth-tracker-${{ env.VERSION }}
           path: dist/*.apk
 
+      - name: Write the release notes
+        if: github.ref == 'refs/heads/main' && env.HAS_KEY == 'true'
+        id: notes
+        run: |
+          node scripts/changelog.mjs notes Unreleased > "$RUNNER_TEMP/notes.md"
+          if [ -s "$RUNNER_TEMP/notes.md" ]; then echo "from_changelog=true" >> "$GITHUB_OUTPUT"; else echo "from_changelog=false" >> "$GITHUB_OUTPUT"; fi
+          printf '\n\n---\nTo install or update, copy the .apk link below into Chrome on your phone, download it and open it.\n' >> "$RUNNER_TEMP/notes.md"
+
       - name: Publish a release
         if: github.ref == 'refs/heads/main' && env.HAS_KEY == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}
           name: Wealth Tracker ${{ env.VERSION }}
-          body: |
-            Android app built from ${{ github.sha }}.
-            Download the .apk below on your phone and open it to install or update.
+          body_path: ${{ runner.temp }}/notes.md
+          # With nothing under Unreleased in CHANGELOG.md, GitHub lists the merged pull requests instead.
+          generate_release_notes: ${{ steps.notes.outputs.from_changelog != 'true' }}
           files: dist/*.apk
+
+      - name: File the Unreleased notes under this version
+        if: github.ref == 'refs/heads/main' && env.HAS_KEY == 'true' && steps.notes.outputs.from_changelog == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+          node scripts/changelog.mjs release "$VERSION" "$(date -u +'%-d %b %Y')"
+          git add CHANGELOG.md
+          git commit -m "Changelog: release $VERSION"
+          git push origin HEAD:main
