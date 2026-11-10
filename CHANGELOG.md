@@ -4,6 +4,8 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+## 1.0.17 (10 Nov 2026)
+
 ### Added
 - Import from any bank, not just NAB. Check-in > Import bank files takes CSV, OFX and QIF downloads from internet banking. OFX files also fill in each account's closing balance.
 - When a CSV is in a layout the app hasn't seen, it shows the first rows and its best guess at which column is the date, description, amount and balance. You check them and see a preview, and the app remembers that layout so it only asks once. NAB's CSV is recognised straight away, as before.
