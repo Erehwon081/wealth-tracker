@@ -4,6 +4,9 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+### Changed
+- The coloured bar under the Spending totals now fills its full width, with each category's share of the month's spending.
+
 ## 1.0.24 (10 Nov 2026)
 
 ### Fixed

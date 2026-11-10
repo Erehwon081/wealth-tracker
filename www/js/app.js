@@ -517,7 +517,7 @@ async function renderSpend() {
     el('div', { class: 'stat' }, el('span', { class: 'l', text: 'Your everyday' }), el('span', { class: 'v ' + (f.everyday <= c.everydayTarget ? 'pos' : 'neg'), text: $0(f.everyday) })),
     el('div', { class: 'stat' }, el('span', { class: 'l', text: 'One-offs' }), el('span', { class: 'v', text: $0(f.lumpy) })),
     partnerOn() ? el('div', { class: 'stat' }, el('span', { class: 'l', text: pLabel("Partner's card") }), el('span', { class: 'v', text: $0(n(md.shonnyCard)) })) : null),
-    el('div', { class: 'alloc cats', role: 'img', 'aria-label': 'Spending by category' }, Object.entries(md.spend || {}).filter(([, v]) => n(v) > 0).sort((a, b) => b[1] - a[1]).map(([k, v]) => el('i', { style: `width:${(n(v) / Math.max(f.cardSpend, n(c.everydayTarget), 1)) * 100}%;--c:${catColor(k)}`, title: k })), el('i', { class: 'rest' })),
+    el('div', { class: 'alloc cats', role: 'img', 'aria-label': 'Spending by category' }, Object.entries(md.spend || {}).filter(([, v]) => n(v) > 0).sort((a, b) => b[1] - a[1]).map(([k, v]) => el('i', { style: `flex:${n(v)} 1 0;--c:${catColor(k)}`, title: `${k} ${$0(n(v))}` }))), // each category's share of the month, filling the bar
     el('p', { class: 'cap muted', text: f.shonnyOnCard ? `${$0(f.shonnyOnCard)} of the card spending is treated as ${pName()}'s share, from transfers beyond the mortgage share and ${pName()}'s card.` : 'Tap a category on any transaction to fix it. Changes update the month straight away.' }));
   const cats = $('#s-cats'); cats.replaceChildren();
   const sp = Object.entries(md.spend || {}).filter(([, v]) => n(v) > 0).sort((a, b) => b[1] - a[1]);
