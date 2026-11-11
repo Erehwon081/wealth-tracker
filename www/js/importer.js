@@ -40,7 +40,7 @@ const tag = (block, name) => { const m = block.match(new RegExp('<' + name + '>(
 export function parseOfx(text) {
   const out = []; const stmts = String(text).split(/<(?=(?:CC)?STMTRS>)/i).slice(1);
   for (const st of stmts) {
-    const card = /^CCSTMTRS>/i.test(st); const acctId = tag(st, 'ACCTID'); const acct = last4(acctId) || acctId.slice(-4);
+    const card = /^CCSTMTRS>/i.test(st); const acctId = tag(st, 'ACCTID'); const acct = last4(acctId) || acctId.slice(-4); const number = acctId.trim();
     const lb = st.match(/<LEDGERBAL>([\s\S]*?)(<\/LEDGERBAL>|<AVAILBAL>|<\/(?:CC)?STMTRS>|$)/i);
     const balance = lb ? parseAmount(tag(lb[1], 'BALAMT')) : null; const balanceDate = lb ? parseDate(tag(lb[1], 'DTASOF')) : null;
     const rows = [];
@@ -51,20 +51,38 @@ export function parseOfx(text) {
     }
     // Carry the closing balance on the newest transaction, which is where the app reads month-end balances from.
     if (balance != null && rows.length) { const newest = rows.reduce((a, b) => (b.date > a.date ? b : a)); newest.bal = balance; }
-    out.push({ acct, kind: card ? 'card' : 'cash', balance, balanceDate, rows });
+    out.push({ acct, number, kind: card ? 'card' : 'cash', balance, balanceDate, rows });
   }
   return out;
 }
 
 // ---------- QIF ----------
+// A QIF file is one account, with no account number. Some banks put the card used in each memo ("Card ending 1234"):
+// those numbers are collected in `cards` to help recognise the account, kept on the row as `card`, and left out of the description.
+const QIF_CARD = /^\s*(?:(?:credit |debit )?card|account|acct)\b\D*[\d\s\-x*]*?(\d{4})\s*$/i;
 export function parseQif(text) {
-  const rows = []; let cur = {};
+  const rows = []; const cards = new Set(); let cur = {}, isCard = false;
   for (const line of String(text).split(/\r?\n/)) {
     const k = line[0], v = line.slice(1).trim();
-    if (k === '^') { const date = parseDate(cur.D), amt = parseAmount(cur.T ?? cur.U); if (date && amt != null) rows.push({ date, amt, desc: [cur.P, cur.M && cur.M !== cur.P ? cur.M : ''].filter(Boolean).join(' ').trim(), merchant: '', acct: '', bal: null, type: '', nabCat: '' }); cur = {}; }
-    else if (k && k !== '!') cur[k] = v;
+    if (k === '!' && /^!Type:\s*CCard/i.test(line)) isCard = true;
+    if (k === '^') {
+      const date = parseDate(cur.D), amt = parseAmount(cur.T ?? cur.U); const cm = (cur.M || '').match(QIF_CARD); const memo = cm ? '' : cur.M;
+      if (date && amt != null) { const t = { date, amt, desc: [cur.P, memo && memo !== cur.P ? memo : ''].filter(Boolean).join(' ').trim(), merchant: '', acct: '', bal: null, type: '', nabCat: '' }; if (cm) { t.card = cm[1]; cards.add(cm[1]); } rows.push(t); }
+      cur = {};
+    } else if (k && k !== '!') cur[k] = v;
   }
-  return [{ acct: '', kind: 'cash', balance: null, balanceDate: null, rows }];
+  return [{ acct: '', kind: isCard ? 'card' : 'cash', balance: null, balanceDate: null, cards: [...cards], rows }];
+}
+
+// For a file with no account number: the account whose saved transactions it overlaps, if that's clear.
+// A match is the same date, amount and start of description. Needs at least 3 matches, 80% of them on one account.
+export function guessAccount(saved, rows) {
+  const key = (t) => [t.date, Math.round(Number(t.amt) * 100), normDesc(t.desc).slice(0, 6)].join('|');
+  const by = new Map(); for (const t of saved || []) { if (!t.acct) continue; const k = key(t); if (!by.has(k)) by.set(k, []); by.get(k).push(t.acct); }
+  const votes = new Map(); let total = 0;
+  for (const t of rows || []) { const accts = by.get(key(t)); if (!accts) continue; total++; for (const a of new Set(accts)) votes.set(a, (votes.get(a) || 0) + 1); }
+  let best = '', n = 0; for (const [a, v] of votes) if (v > n) { best = a; n = v; }
+  return n >= 3 && n >= 0.8 * total ? best : '';
 }
 
 // ---------- CSV ----------
@@ -109,7 +127,10 @@ export function applyMapping(rows, m) {
     if (amt == null) { const d = parseAmount(g(r, 'debit')), c = parseAmount(g(r, 'credit')); if (d == null && c == null) continue; amt = Math.abs(c || 0) - Math.abs(d || 0); }
     if (m.flip) amt = -amt;
     const balTxt = g(r, 'balance'); const bal = balTxt === '' ? null : parseAmount(balTxt);
-    out.push({ date, amt, desc: g(r, 'desc'), merchant: g(r, 'merchant'), acct: last4(g(r, 'account')), bal, type: g(r, 'type'), nabCat: g(r, 'category') });
+    const t = { date, amt, desc: g(r, 'desc'), merchant: g(r, 'merchant'), acct: last4(g(r, 'account')), bal, type: g(r, 'type'), nabCat: g(r, 'category') };
+    // The full account number, for the account's details. The app takes it off the row before saving.
+    if (g(r, 'account').trim()) Object.defineProperty(t, 'acctNo', { value: g(r, 'account').trim().replace(/\s+/g, ' '), enumerable: false });
+    out.push(t);
   }
   return out;
 }
@@ -160,7 +181,7 @@ export function newOnly(existing, incoming, days = 3) {
     const a = t.acct || '', r = range.get(a), head = normDesc(t.desc).slice(0, 6), d = Date.parse(t.date);
     const from = Date.parse(r[0]) - days * DAY, to = Date.parse(r[1]) + days * DAY;
     const hit = (existing || []).find((e) => !used.has(e) && (e.acct || '') === a && cents(e) === cents(t) && Date.parse(e.date) >= from && Date.parse(e.date) <= to
-      && Math.abs(Date.parse(e.date) - d) <= days * DAY && head.length >= 3 && normDesc(e.desc).slice(0, 6) === head);
+      && Math.abs(Date.parse(e.date) - d) <= days * DAY && head.length >= 3 && normDesc(e.desc).slice(0, 6).startsWith(head));
     if (hit) used.add(hit); else fresh.push(t);
   }
   return fresh;
@@ -215,7 +236,8 @@ export function planReplace(saved, incoming, score = () => 0, days = 3) {
   // 2. Pending purchases that went through with a new date or longer description.
   for (const t of rest) {
     const head = normDesc(t.desc).slice(0, 6), d = Date.parse(t.date);
-    const cands = [...replace, ...near].filter((x) => !used.has(x) && (x.acct || '') === (t.acct || '') && cents(x) === cents(t) && head.length >= 3 && normDesc(x.desc).slice(0, 6) === head && Math.abs(Date.parse(x.date) - d) <= days * DAY).sort(byScore);
+    const like = (x) => !used.has(x) && cents(x) === cents(t) && head.length >= 3 && normDesc(x.desc).slice(0, 6).startsWith(head) && Math.abs(Date.parse(x.date) - d) <= days * DAY;
+    const cands = [...replace, ...near].filter((x) => like(x) && (x.acct || '') === (t.acct || '')).sort(byScore);
     if (cands.length) { used.add(cands[0]); if (!replace.includes(cands[0])) replace.push(cands[0]); rows.push(carry(t, cands[0])); }
     else rows.push({ ...t });
   }

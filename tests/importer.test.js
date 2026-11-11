@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDate, parseAmount, detectKind, parseOfx, parseQif, guessMapping, applyMapping, resolveMapping, readCsv, signature, mappingOk, last4 } from '../www/js/importer.js';
+import { parseDate, parseAmount, detectKind, parseOfx, parseQif, guessAccount, guessMapping, applyMapping, resolveMapping, readCsv, signature, mappingOk, last4 } from '../www/js/importer.js';
 import { seedCategory } from '../www/js/merchants.js';
 
 test('dates and amounts in the forms banks use', () => {
@@ -37,6 +37,26 @@ test('QIF: day-first dates, payee and memo', () => {
   assert.equal(detectKind('x.qif', qif), 'qif');
   const [a] = parseQif(qif);
   assert.deepEqual(a.rows.map((r) => [r.date, r.amt, r.desc]), [['2026-12-03', -42.5, 'WOOLWORTHS Card purchase'], ['2026-12-15', 4820, 'SALARY']]);
+});
+
+test('QIF: one account per file; card numbers in memos are collected and kept out of the description', () => {
+  const qif = '!Type:CCard\nD11/11/26\nT-25.60\nPEXAMPLE SHOP    SYDNEY\nMCard ending 1111\n^\nD10/11/26\nT-8.00\nPCAFE\nMCard ending 2222\n^\nD09/11/26\nT300.00\nPINTERNET PAYMENT\n^\n';
+  const gs = parseQif(qif);
+  assert.equal(gs.length, 1); assert.equal(gs[0].kind, 'card'); assert.equal(gs[0].acct, ''); assert.deepEqual(gs[0].cards, ['1111', '2222']);
+  assert.deepEqual(gs[0].rows.map((r) => [r.date, r.amt, r.desc, r.card]), [['2026-11-11', -25.6, 'EXAMPLE SHOP    SYDNEY', '1111'], ['2026-11-10', -8, 'CAFE', '2222'], ['2026-11-09', 300, 'INTERNET PAYMENT', undefined]]);
+  assert.deepEqual(parseQif('!Type:Bank\nD01/12/26\nT-1\nPX\nMAccount 082-000 12345678\n^\n')[0].cards, ['5678']);
+  assert.deepEqual(parseQif('!Type:Bank\nD01/12/26\nT-1\nPX\nMCard purchase\n^\n')[0].cards, []);
+});
+
+test('a file with no account number is recognised from saved transactions it overlaps', () => {
+  const saved = [
+    { date: '2026-11-03', amt: -12.5, desc: 'COLES 0637 RINGWOOD Card ending 1111', acct: 'A' }, { date: '2026-11-04', amt: -40, desc: 'PETROL', acct: 'A' },
+    { date: '2026-11-05', amt: 300, desc: 'INTERNET PAYMENT', acct: 'A' }, { date: '2026-11-04', amt: -40, desc: 'PETROL', acct: 'B' },
+  ];
+  const rows = [{ date: '2026-11-03', amt: -12.5, desc: 'COLES 0637 RINGWOOD' }, { date: '2026-11-04', amt: -40, desc: 'PETROL' }, { date: '2026-11-05', amt: 300, desc: 'INTERNET PAYMENT' }, { date: '2026-11-09', amt: -3, desc: 'NEW' }];
+  assert.equal(guessAccount(saved, rows), 'A');
+  assert.equal(guessAccount(saved, rows.slice(0, 2)), '', 'too few matches to be sure');
+  assert.equal(guessAccount([], rows), '');
 });
 
 test('NAB export is recognised without asking, whatever the column order', () => {

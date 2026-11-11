@@ -20,6 +20,12 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   ok(await p.isVisible('#h-first'), 'first run shows the empty state');
   await p.click('text=Load sample data'); await p.waitForTimeout(600);
   ok(await p.isHidden('#h-first') && (await p.textContent('#h-nw')).startsWith('$'), 'sample data loads');
+  const hac = await p.textContent('#h-accts');
+  ok(hac.includes('Everyday account') && hac.includes('•••• 1111') && !hac.includes('12341111') && hac.includes('as of 30 Nov 2026') && hac.includes('$1,209.85'), 'Home lists everyday accounts with the number hidden and the latest balance ' + hac.slice(0, 160));
+  ok(!hac.includes('Super') && !hac.includes('Home loan') && !hac.includes('Shares'), 'Home accounts leave out super, investments, property and loans');
+  await p.click('#h-accts button:text-is("Show numbers")');
+  ok((await p.textContent('#h-accts')).includes('083-000 12341111'), 'Show numbers reveals the full account numbers');
+  await p.click('#h-accts button:text-is("Hide numbers")');
   ok(await p.isHidden('#h-nudge'), 'no backup reminder right after first use');
 
   // Settings: partner name replaces Partner labels
@@ -290,6 +296,9 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   await ip.selectOption('.sheet select', { label: 'Everyday account' }); await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(900);
   await ip.selectOption('#monthPick', '2026-11'); await ip.waitForTimeout(400);
   ok(await ip.inputValue('#c-bal input[aria-label="Everyday account"]') === '5321.09' && await ip.inputValue('#f-income') === '4820', 'OFX fills the closing balance and the pay');
+  await ip.click('.tab[data-tab=home]'); await ip.waitForTimeout(400);
+  const ihac = await ip.textContent('#h-accts');
+  ok(ihac.includes('•••• 6789') && ihac.includes('as of 15 Nov 2026') && ihac.includes('$5,321.09'), 'the full account number and the balance date come from the bank file ' + ihac.slice(0, 160));
   await ip.click('.tab[data-tab=spend]'); await ip.waitForTimeout(500);
   ok((await ip.textContent('#s-tx')).includes('WOOLWORTHS') && (await ip.locator('#s-tx select').first().inputValue()) === 'Groceries', 'built-in merchant rules file Woolworths under Groceries');
 
@@ -385,6 +394,25 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   await ip.click('.sheet-bg:last-child .btn.primary'); await ip.waitForTimeout(400);
   const savedRules = await ip.evaluate(async () => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); }); return new Promise((res) => { const q = db.transaction('config').objectStore('config').get('app'); q.onsuccess = () => res(q.result.rules); }); });
   ok(JSON.stringify(savedRules) === JSON.stringify([{ match: 'SPOTIFY', cat: 'Entertainment' }]), 'a category rule saves from Settings ' + JSON.stringify(savedRules));
+  // QIF: one account per file. Asked once; then known by its card numbers, or by transactions already saved.
+  const qifPath = path.join(tmp, 'Transactions_10.qif');
+  await ip.evaluate(() => document.querySelectorAll('.sheet-bg').forEach((b) => b.remove()));
+  fs.writeFileSync(qifPath, '!Type:CCard\nD12/11/26\nT-25.60\nPEXAMPLE SHOP     SYDNEY\nMCard ending 4321\n^\nD12/11/26\nT-8.00\nPCORNER CAFE\nMCard ending 8765\n^\nD12/11/26\nT150.00\nPINTERNET PAYMENT\n^\n');
+  await ip.click('.tab[data-tab=checkin]'); await ip.waitForTimeout(300);
+  await ipick('#v-checkin [data-pick=csvIn]', qifPath); await ip.waitForTimeout(500);
+  const qs = await ip.textContent('.sheet');
+  ok(qs.includes("doesn't say which account") && !qs.includes('Account ending'), 'a new QIF asks once which account it is, not about each card');
+  await ip.selectOption('#ia-acct', { label: 'Everyday account' }); await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(900);
+  fs.writeFileSync(qifPath, '!Type:CCard\nD13/11/26\nT-4.50\nPBAKERY\nMCard ending 8765\n^\nD13/11/26\nT20.00\nPINTERNET TRANSFER\n^\n');
+  await ipick('#v-checkin [data-pick=csvIn]', qifPath); await ip.waitForTimeout(900);
+  const qt = await ip.textContent('.toast');
+  ok(!(await ip.locator('.sheet').count()) && qt.includes('Imported 2 new transactions') && qt.includes('choose CSV if your bank offers it'), 'the next QIF with one of those cards imports without asking, and suggests CSV for next time');
+  fs.writeFileSync(qifPath, '!Type:Bank\nD12/11/26\nT-25.60\nPEXAMPLE SHOP     SYDNEY\n^\nD12/11/26\nT-8.00\nPCORNER CAFE\n^\nD12/11/26\nT150.00\nPINTERNET PAYMENT\n^\nD14/11/26\nT-6.00\nPMUFFINS\n^\n');
+  await ipick('#v-checkin [data-pick=csvIn]', qifPath); await ip.waitForTimeout(900);
+  ok(!(await ip.locator('.sheet').count()) && (await ip.textContent('.toast')).includes('Imported 1 new transaction'), 'a QIF with no card numbers is recognised from transactions already saved');
+  await ip.click('.tab[data-tab=spend]'); await ip.waitForTimeout(500);
+  const qtx = await ip.textContent('#s-tx');
+  ok(qtx.includes('CORNER CAFE') && qtx.includes('MUFFINS') && !qtx.includes('Card ending'), 'the card memo is left out of the description');
   ok(ierrors.length === 0, 'no page errors in setup and import ' + JSON.stringify(ierrors));
   await ictx.close();
 
