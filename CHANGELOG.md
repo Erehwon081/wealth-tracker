@@ -5,7 +5,7 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 ## Unreleased
 
 ### Added
-- An Accounts card on Home lists every account with its latest balance, its account number and the date the balance is from. Account numbers are saved from your CSV and OFX files, or type them in under Wealth > edit an account.
+- An Accounts card on Home lists your everyday accounts and cards with their latest balance, account number and the date the balance is from. Numbers show only their last four digits until you tap Show numbers. They're saved from your CSV and OFX files, or type them in under Wealth > edit an account.
 
 ### Changed
 - CSV is now the recommended bank file. Check-in explains why: it says which account each transaction is from, and gives balances and better categories. OFX works too, and QIF is for when there's nothing else. After a QIF import, the message suggests choosing CSV next time.

@@ -21,7 +21,11 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   await p.click('text=Load sample data'); await p.waitForTimeout(600);
   ok(await p.isHidden('#h-first') && (await p.textContent('#h-nw')).startsWith('$'), 'sample data loads');
   const hac = await p.textContent('#h-accts');
-  ok(hac.includes('Everyday account') && hac.includes('083-000 12341111') && hac.includes('as of 30 Nov 2026') && hac.includes('$1,209.85'), 'Home lists each account with its number and latest balance ' + hac.slice(0, 160));
+  ok(hac.includes('Everyday account') && hac.includes('•••• 1111') && !hac.includes('12341111') && hac.includes('as of 30 Nov 2026') && hac.includes('$1,209.85'), 'Home lists everyday accounts with the number hidden and the latest balance ' + hac.slice(0, 160));
+  ok(!hac.includes('Super') && !hac.includes('Home loan') && !hac.includes('Shares'), 'Home accounts leave out super, investments, property and loans');
+  await p.click('#h-accts button:text-is("Show numbers")');
+  ok((await p.textContent('#h-accts')).includes('083-000 12341111'), 'Show numbers reveals the full account numbers');
+  await p.click('#h-accts button:text-is("Hide numbers")');
   ok(await p.isHidden('#h-nudge'), 'no backup reminder right after first use');
 
   // Settings: partner name replaces Partner labels
@@ -294,7 +298,7 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   ok(await ip.inputValue('#c-bal input[aria-label="Everyday account"]') === '5321.09' && await ip.inputValue('#f-income') === '4820', 'OFX fills the closing balance and the pay');
   await ip.click('.tab[data-tab=home]'); await ip.waitForTimeout(400);
   const ihac = await ip.textContent('#h-accts');
-  ok(ihac.includes('123456789') && ihac.includes('as of 15 Nov 2026') && ihac.includes('$5,321.09'), 'the full account number and the balance date come from the bank file ' + ihac.slice(0, 160));
+  ok(ihac.includes('•••• 6789') && ihac.includes('as of 15 Nov 2026') && ihac.includes('$5,321.09'), 'the full account number and the balance date come from the bank file ' + ihac.slice(0, 160));
   await ip.click('.tab[data-tab=spend]'); await ip.waitForTimeout(500);
   ok((await ip.textContent('#s-tx')).includes('WOOLWORTHS') && (await ip.locator('#s-tx select').first().inputValue()) === 'Groceries', 'built-in merchant rules file Woolworths under Groceries');
 

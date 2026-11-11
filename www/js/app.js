@@ -473,16 +473,21 @@ function renderHome() {
   if (md.notes) todo.append(el('p', { class: 'cap muted', text: md.notes }));
 }
 
-// Each account's latest balance, whichever month it's from, with its number and the date the balance is from.
+// Everyday accounts (cash, offset, cards) with their latest balance, whichever month it's from, number and date.
+// Numbers show only their last 4 digits until "Show numbers" is tapped.
+let showAcctNos = false;
 function renderHomeAccounts() {
-  const box = $('#h-accts'); box.replaceChildren(el('div', { class: 'row' }, el('h2', { text: 'Accounts' }), el('span', { class: 'cap muted', text: 'latest balances' })));
-  if (!S.accounts.length) { box.hidden = true; return; } box.hidden = false;
+  const box = $('#h-accts'); const list = S.accounts.filter((a) => ['cash', 'offset', 'card'].includes(a.type)).sort((x, y) => (x.order ?? 0) - (y.order ?? 0));
+  if (!list.length) { box.hidden = true; return; } box.hidden = false;
+  const hasNos = list.some((a) => a.number);
+  box.replaceChildren(el('div', { class: 'row' }, el('h2', { text: 'Accounts' }), hasNos ? el('button', { class: 'linkbtn cap', type: 'button', 'aria-pressed': String(showAcctNos), text: showAcctNos ? 'Hide numbers' : 'Show numbers', onclick: () => { showAcctNos = !showAcctNos; renderHomeAccounts(); } }) : el('span', { class: 'cap muted', text: 'latest balances' })));
   // A balance from a bank file is as of its newest transaction; one keyed in is as of the month's last day.
   const asOf = (a, b) => { const [y, mo] = b.m.split('-').map(Number); const d = S.months[b.m]?.balDates?.[a.id]; return (d ? new Date(d + 'T00:00:00') : new Date(y, mo, 0)).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }); };
-  box.append(el('div', { class: 'list' }, [...S.accounts].sort((x, y) => (x.order ?? 0) - (y.order ?? 0)).map((a) => {
+  const shown = (no) => (showAcctNos ? no : '•••• ' + (no.replace(/\D/g, '').slice(-4)));
+  box.append(el('div', { class: 'list' }, list.map((a) => {
     const b = balanceFor(a, '9999-12');
-    const sub = [TYPES[a.type] || '', a.number || '', b ? 'as of ' + asOf(a, b) : 'no balance yet'].filter(Boolean).join(' · ');
-    return el('div', { class: 'row', style: 'padding-block:8px;border-top:1px solid var(--line)' }, el('span', {}, el('span', { text: a.name, style: 'display:block' }), el('span', { class: 'cap muted', text: sub })), el('span', { class: 'num ' + (b && b.v < 0 ? 'neg' : ''), text: b ? (['cash', 'offset', 'card'].includes(a.type) ? $2(b.v) : $0(b.v)) : '—' }));
+    const sub = [TYPES[a.type] || '', a.number ? shown(a.number) : '', b ? 'as of ' + asOf(a, b) : 'no balance yet'].filter(Boolean).join(' · ');
+    return el('div', { class: 'row', style: 'padding-block:8px;border-top:1px solid var(--line)' }, el('span', {}, el('span', { text: a.name, style: 'display:block' }), el('span', { class: 'cap muted', text: sub })), el('span', { class: 'num ' + (b && b.v < 0 ? 'neg' : ''), text: b ? $2(b.v) : '—' }));
   })));
 }
 

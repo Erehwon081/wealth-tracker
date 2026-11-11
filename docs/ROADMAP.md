@@ -53,7 +53,7 @@ Suggested order: 10, 9, 7, 8. The walkthrough goes last because it describes the
 
 ### 7. Account balances view ✅ Done (11 Nov 2026)
 
-Built as an Accounts card on Home, at the user's request: each account's latest balance, its full account number (saved from CSV and OFX files, or typed in), and the date the balance is from. Numbers are shown in full, not masked.
+Built as an Accounts card on Home, at the user's request: everyday accounts only (cash, offset, cards), each with its latest balance, account number (saved from CSV and OFX files, or typed in) and the date the balance is from. Numbers show the last 4 digits until Show numbers is tapped (not remembered).
 
 - A clearer list of every account's current balance, grouped (everyday and savings, cards, loans, investments, property), with the date each balance is from and where it came from (import, PDF or typed in).
 - Each account can store its full account number (and BSB), shown in the view. On the device only, like everything else, and included in backups. Today only the last four digits are kept, as the import match key (`a.match`).
