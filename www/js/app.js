@@ -1136,7 +1136,7 @@ async function readFiles(files) {
   for (const f of files) {
     let gs; try { gs = await readBankFile(f); } catch { gs = []; }
     if (gs === null) continue; // the user closed the column check
-    if (!gs.some((g) => g.rows.length)) { toast(`No transactions found in ${f.name}. Use your bank's CSV, OFX or QIF download.`); continue; }
+    if (!gs.some((g) => g.rows.length)) { toast(`No transactions found in ${f.name}. Use your bank's CSV download, or OFX or QIF if it has no CSV.`); continue; }
     for (const g of gs) {
       if (!g.rows.length) continue;
       if (!g.acct) {
@@ -1153,7 +1153,7 @@ async function readFiles(files) {
   }
   if (!all.length) return null;
   await linkAccounts(groups);
-  return { groups, all };
+  return { groups, all, qif: groups.some((g) => g.cards) };
 }
 async function importFiles(files) {
   const got = await readFiles(files); if (!got) return;
@@ -1174,7 +1174,7 @@ async function importFiles(files) {
   for (const m of touched) await applySummary(m, true);
   const months = touched.sort();
   S.month = months[months.length - 1]; fillMonthPick();
-  toast(`Imported ${added} new transaction${added === 1 ? '' : 's'} for ${months.map((m) => mLabel(m)).join(', ')}`);
+  toast(`Imported ${added} new transaction${added === 1 ? '' : 's'} for ${months.map((m) => mLabel(m)).join(', ')}${got.qif ? '. Next time, choose CSV if your bank offers it: it gives balances and better categories.' : ''}`);
   render(true);
 }
 

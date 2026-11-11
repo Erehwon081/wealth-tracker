@@ -396,7 +396,8 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   await ip.selectOption('#ia-acct', { label: 'Everyday account' }); await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(900);
   fs.writeFileSync(qifPath, '!Type:CCard\nD13/11/26\nT-4.50\nPBAKERY\nMCard ending 8765\n^\nD13/11/26\nT20.00\nPINTERNET TRANSFER\n^\n');
   await ipick('#v-checkin [data-pick=csvIn]', qifPath); await ip.waitForTimeout(900);
-  ok(!(await ip.locator('.sheet').count()) && (await ip.textContent('.toast')).includes('Imported 2 new transactions'), 'the next QIF with one of those cards imports without asking');
+  const qt = await ip.textContent('.toast');
+  ok(!(await ip.locator('.sheet').count()) && qt.includes('Imported 2 new transactions') && qt.includes('choose CSV if your bank offers it'), 'the next QIF with one of those cards imports without asking, and suggests CSV for next time');
   fs.writeFileSync(qifPath, '!Type:Bank\nD12/11/26\nT-25.60\nPEXAMPLE SHOP     SYDNEY\n^\nD12/11/26\nT-8.00\nPCORNER CAFE\n^\nD12/11/26\nT150.00\nPINTERNET PAYMENT\n^\nD14/11/26\nT-6.00\nPMUFFINS\n^\n');
   await ipick('#v-checkin [data-pick=csvIn]', qifPath); await ip.waitForTimeout(900);
   ok(!(await ip.locator('.sheet').count()) && (await ip.textContent('.toast')).includes('Imported 1 new transaction'), 'a QIF with no card numbers is recognised from transactions already saved');
