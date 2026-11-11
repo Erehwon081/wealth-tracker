@@ -4,7 +4,7 @@ import { fetchAllPrices, looksLikePublishedCsv, SHEET_COLS } from './prices.js';
 import { buildBackup, encryptBackup, decryptBackup, isEncrypted, readBackup, backupFileName } from './backup.js';
 import { planReminders, DEFAULT_REMINDERS, isOurs } from './reminders.js';
 import { simulate, rateAt, rateChangeCost, sortHistory } from './loans.js';
-import { newOnly, findDuplicates, planReplace, parseDate, last4, detectKind, parseOfx, parseQif, readCsv, resolveMapping, applyMapping, mappingOk } from './importer.js';
+import { newOnly, guessAccount, findDuplicates, planReplace, parseDate, last4, detectKind, parseOfx, parseQif, readCsv, resolveMapping, applyMapping, mappingOk } from './importer.js';
 import { seedCategory } from './merchants.js';
 import { fyOf, fyLabel, fyList, fySummary, matchParcels, unitsHeld, costHeld, totalDivs, frankingCredit, parseDividendRows, taxCsv } from './tax.js';
 
@@ -165,7 +165,7 @@ function payoff(balance, ratePct, payment) {
 function classify(r, c) {
   const det = (r.desc || '').toUpperCase(); const type = (r.type || '').toUpperCase(); const amt = r.amt;
   for (const rule of c.rules || []) if (rule.match && det.includes(String(rule.match).toUpperCase())) return { cat: rule.cat };
-  if (partnerOn() && (c.partnerCards || []).includes(r.acct)) return { cat: "Partner's card" };
+  if (partnerOn() && ((c.partnerCards || []).includes(r.acct) || (r.card && (c.partnerCards || []).includes(r.card)))) return { cat: "Partner's card" };
   if (type.includes('CREDIT CARD PAYMENT') || type.includes('CASH ADVANCE')) return { cat: 'Transfer' };
   if (type === 'FEES' || type.includes('INTEREST')) return { cat: 'Interest & fees' };
   if (type.includes('SALARY') || det.includes('SALARY')) return { cat: 'Income' };
@@ -1092,6 +1092,12 @@ async function askAccount(fileName) {
   await writeDoc('accounts/' + a.id, { ...a });
   return key;
 }
+// Card numbers seen in a file are added to its account's match keys, so the next file with them is recognised.
+async function rememberCards(key, cards) {
+  const a = acctFor(key); const add = (cards || []).filter((k) => !acctFor(k));
+  if (!a || !add.length) return;
+  a.match = [...acctKeys(a), ...add].join(','); await writeDoc('accounts/' + a.id, { ...a });
+}
 // Account numbers in the files that aren't linked to an account yet: link them, add them, or stop asking.
 async function linkAccounts(groups) {
   const c = cfg(); const skip = new Set([...(c.partnerCards || []), ...(c.ignoredAccts || [])]); const seen = new Map();
@@ -1133,7 +1139,15 @@ async function readFiles(files) {
     if (!gs.some((g) => g.rows.length)) { toast(`No transactions found in ${f.name}. Use your bank's CSV, OFX or QIF download.`); continue; }
     for (const g of gs) {
       if (!g.rows.length) continue;
-      if (!g.acct) { const key = await askAccount(f.name); if (key === null) continue; g.acct = key; g.rows.forEach((t) => { t.acct = key; }); }
+      if (!g.acct) {
+        // A card number already linked to an account, or a clear overlap with saved transactions, says which account it is. Otherwise ask.
+        let key = (g.cards || []).map((k) => acctFor(k) && k).find(Boolean) || '';
+        if (key) { const a = acctFor(key); key = acctKeys(a)[0]; }
+        if (!key) { await ensureAllTx(); key = guessAccount(Object.values(S.tx).flat(), g.rows); }
+        if (!key) { key = await askAccount(f.name); if (key === null) continue; }
+        await rememberCards(key, g.cards);
+        g.acct = key; g.rows.forEach((t) => { t.acct = key; });
+      }
       groups.push(g); all = all.concat(g.rows);
     }
   }

@@ -41,7 +41,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 - **Accounts:** files are grouped by account number. Unknown numbers ask to be linked, added or ignored (`config.ignoredAccts`); files with no number ask for an account and use its match key (the account id if it has none).
 - **Categorising:** user rules → household (partner cards, names, rent) → transfers and loans → `seedCategory` (`www/js/merchants.js`) for Rego/Personal care/Services/Other → the bank's own category (NAB) → `seedCategory` for everything else → Other. This kept the old order for the first user's NAB imports.
 - **Partner features are on unless `config.hasPartner === false`** (only the setup walkthrough or the Household setting sets that), so existing data is unchanged.
-- **QIF account from the memo:** QIF has no account field, but the user's bank writes "Card ending NNNN" in each memo. `parseQif` groups rows by that (last 4 digits, like every other match key) and leaves that memo out of the description. `planReplace` may carry settings from a saved copy under another account, only if that copy is being replaced anyway and is on the same day, because earlier QIF imports filed both cards under one account.
+- **A QIF file is one account.** It has no account field. Card numbers in memos ("Card ending NNNN", several cards can share one account) go in the group's `cards` and each row's `card`, and are added to the account's match keys once it's known. Order: a linked card number, then `guessAccount` (≥3 rows matching saved ones on date, amount and description start, 80% on one account), then ask. Partner cards still match on `t.card`.
 - **The file picker has no type filter** because Android greys out OFX and QIF files it has no type for.
 
 ### Re-importing and corrections
@@ -77,7 +77,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 
 ## Log
 
-- **11 Nov 2026**: QIF imports read the card from each memo (roadmap 10). Added the user's ideas list to the roadmap, with safe-to-spend, review queue and app lock first.
+- **11 Nov 2026**: QIF imports recognise their account by card numbers or saved transactions (roadmap 10); first tried one account per card, which was wrong: the user's two cards share one account. Added the user's ideas list to the roadmap, with safe-to-spend, review queue and app lock first.
 - **10 Nov 2026**: Spending's category bar now fills its width with each category's share of spend (1.0.26). Full-width toasts (1.0.24) came from misreading "the whole bar"; reverted to fit-content bubbles at the user's request (1.0.28), keeping the outline toast button.
 - **9 Nov 2026**: Built the PWA from the artifact, deployed to Pages. Partner tagging, expected pay, the new look, motion and swipe, the first Android releases (1.0.4, 1.0.6, 1.0.8).
 - **10 Nov 2026**: Release notes from the changelog (1.0.10). Added `CLAUDE.md` and this file. The user plans one Claude Code chat per release, grouped in a Claude project.

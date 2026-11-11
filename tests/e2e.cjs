@@ -385,21 +385,24 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   await ip.click('.sheet-bg:last-child .btn.primary'); await ip.waitForTimeout(400);
   const savedRules = await ip.evaluate(async () => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); }); return new Promise((res) => { const q = db.transaction('config').objectStore('config').get('app'); q.onsuccess = () => res(q.result.rules); }); });
   ok(JSON.stringify(savedRules) === JSON.stringify([{ match: 'SPOTIFY', cat: 'Entertainment' }]), 'a category rule saves from Settings ' + JSON.stringify(savedRules));
-  // QIF with the card number in each memo: linked once, then never asks which account
+  // QIF: one account per file. Asked once; then known by its card numbers, or by transactions already saved.
   const qifPath = path.join(tmp, 'Transactions_10.qif');
   await ip.evaluate(() => document.querySelectorAll('.sheet-bg').forEach((b) => b.remove()));
-  fs.writeFileSync(qifPath, '!Type:CCard\nD12/11/26\nT-25.60\nPEXAMPLE SHOP     SYDNEY\nMCard ending 4321\n^\nD12/11/26\nT-8.00\nPCORNER CAFE\nMCard ending 4321\n^\n');
+  fs.writeFileSync(qifPath, '!Type:CCard\nD12/11/26\nT-25.60\nPEXAMPLE SHOP     SYDNEY\nMCard ending 4321\n^\nD12/11/26\nT-8.00\nPCORNER CAFE\nMCard ending 8765\n^\nD12/11/26\nT150.00\nPINTERNET PAYMENT\n^\n');
   await ip.click('.tab[data-tab=checkin]'); await ip.waitForTimeout(300);
   await ipick('#v-checkin [data-pick=csvIn]', qifPath); await ip.waitForTimeout(500);
   const qs = await ip.textContent('.sheet');
-  ok(qs.includes('Account ending 4321') && !qs.includes("doesn't say which account"), 'a QIF with card numbers in its memos asks to link the card, not which account');
-  await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(900);
-  fs.writeFileSync(qifPath, '!Type:CCard\nD13/11/26\nT-4.50\nPBAKERY\nMCard ending 4321\n^\n');
+  ok(qs.includes("doesn't say which account") && !qs.includes('Account ending'), 'a new QIF asks once which account it is, not about each card');
+  await ip.selectOption('#ia-acct', { label: 'Everyday account' }); await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(900);
+  fs.writeFileSync(qifPath, '!Type:CCard\nD13/11/26\nT-4.50\nPBAKERY\nMCard ending 8765\n^\nD13/11/26\nT20.00\nPINTERNET TRANSFER\n^\n');
   await ipick('#v-checkin [data-pick=csvIn]', qifPath); await ip.waitForTimeout(900);
-  ok(!(await ip.locator('.sheet').count()) && (await ip.textContent('.toast')).includes('Imported 1 new transaction'), 'the next QIF for that card imports without asking');
+  ok(!(await ip.locator('.sheet').count()) && (await ip.textContent('.toast')).includes('Imported 2 new transactions'), 'the next QIF with one of those cards imports without asking');
+  fs.writeFileSync(qifPath, '!Type:Bank\nD12/11/26\nT-25.60\nPEXAMPLE SHOP     SYDNEY\n^\nD12/11/26\nT-8.00\nPCORNER CAFE\n^\nD12/11/26\nT150.00\nPINTERNET PAYMENT\n^\nD14/11/26\nT-6.00\nPMUFFINS\n^\n');
+  await ipick('#v-checkin [data-pick=csvIn]', qifPath); await ip.waitForTimeout(900);
+  ok(!(await ip.locator('.sheet').count()) && (await ip.textContent('.toast')).includes('Imported 1 new transaction'), 'a QIF with no card numbers is recognised from transactions already saved');
   await ip.click('.tab[data-tab=spend]'); await ip.waitForTimeout(500);
   const qtx = await ip.textContent('#s-tx');
-  ok(qtx.includes('CORNER CAFE') && !qtx.includes('Card ending'), 'the card memo is left out of the description');
+  ok(qtx.includes('CORNER CAFE') && qtx.includes('MUFFINS') && !qtx.includes('Card ending'), 'the card memo is left out of the description');
   ok(ierrors.length === 0, 'no page errors in setup and import ' + JSON.stringify(ierrors));
   await ictx.close();
 

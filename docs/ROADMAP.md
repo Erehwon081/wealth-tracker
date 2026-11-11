@@ -66,7 +66,7 @@ Suggested order: 10, 9, 7, 8. The walkthrough goes last because it describes the
 
 ### 10. Remember which account a QIF file is for ✅ Done (11 Nov 2026)
 
-The user's bank puts "Card ending NNNN" in each memo, so rows are grouped by card. QIFs with no number anywhere still ask; the overlap and file-name ideas below are left for if that comes up.
+Recognised by card numbers in the memos (several cards can share one account), or by overlap with saved transactions. The file-name idea wasn't needed.
 
 - QIF files from most banks have no account number, so every import asks. Options, simplest first: recognise the account from transactions already saved (if the file overlaps one account's saved transactions, use it); remember the answer by the file name's pattern; read the account name if the file has an `!Account` block. Check a real (scrubbed) QIF from the user's bank first.
 

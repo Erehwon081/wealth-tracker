@@ -5,8 +5,8 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 ## Unreleased
 
 ### Fixed
-- QIF files that name the card on each transaction ("Card ending 1234") no longer ask which account they're from every time. Each card is linked once, then recognised on every import, and a file covering two cards files each purchase under the right one. The card line is no longer added to the description.
-- Replace with a fresh import now keeps your categories for purchases an earlier QIF import filed under the wrong card.
+- QIF files no longer ask which account they're from every time. The app recognises the account from the card numbers in the file once you've told it, or from transactions it has already saved, and only asks when it can't tell. Purchases on different cards for the same account all go to that account.
+- The "Card ending …" line from a QIF is no longer added to each description.
 
 ## 1.0.28 (10 Nov 2026)
 

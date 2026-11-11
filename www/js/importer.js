@@ -57,24 +57,32 @@ export function parseOfx(text) {
 }
 
 // ---------- QIF ----------
-// QIF has no account number field, but some banks put one in each transaction's memo ("Card ending 1234").
-// Those rows are grouped by it; a memo that only names the card isn't added to the description.
-const QIF_ACCT = /^\s*(?:(?:credit |debit )?card|account|acct)\b\D*[\d\s\-x*]*?(\d{4})\s*$/i;
+// A QIF file is one account, with no account number. Some banks put the card used in each memo ("Card ending 1234"):
+// those numbers are collected in `cards` to help recognise the account, kept on the row as `card`, and left out of the description.
+const QIF_CARD = /^\s*(?:(?:credit |debit )?card|account|acct)\b\D*[\d\s\-x*]*?(\d{4})\s*$/i;
 export function parseQif(text) {
-  const rows = []; let cur = {}, card = false;
+  const rows = []; const cards = new Set(); let cur = {}, isCard = false;
   for (const line of String(text).split(/\r?\n/)) {
     const k = line[0], v = line.slice(1).trim();
-    if (k === '!' && /^!Type:\s*CCard/i.test(line)) card = true;
+    if (k === '!' && /^!Type:\s*CCard/i.test(line)) isCard = true;
     if (k === '^') {
-      const date = parseDate(cur.D), amt = parseAmount(cur.T ?? cur.U); const am = (cur.M || '').match(QIF_ACCT);
-      const memo = am ? '' : cur.M;
-      if (date && amt != null) rows.push({ date, amt, desc: [cur.P, memo && memo !== cur.P ? memo : ''].filter(Boolean).join(' ').trim(), merchant: '', acct: am ? am[1] : '', bal: null, type: '', nabCat: '' });
+      const date = parseDate(cur.D), amt = parseAmount(cur.T ?? cur.U); const cm = (cur.M || '').match(QIF_CARD); const memo = cm ? '' : cur.M;
+      if (date && amt != null) { const t = { date, amt, desc: [cur.P, memo && memo !== cur.P ? memo : ''].filter(Boolean).join(' ').trim(), merchant: '', acct: '', bal: null, type: '', nabCat: '' }; if (cm) { t.card = cm[1]; cards.add(cm[1]); } rows.push(t); }
       cur = {};
     } else if (k && k !== '!') cur[k] = v;
   }
-  const by = new Map(); for (const t of rows) { if (!by.has(t.acct)) by.set(t.acct, []); by.get(t.acct).push(t); }
-  if (!by.size) by.set('', []);
-  return [...by.entries()].map(([acct, list]) => ({ acct, kind: card ? 'card' : 'cash', balance: null, balanceDate: null, rows: list }));
+  return [{ acct: '', kind: isCard ? 'card' : 'cash', balance: null, balanceDate: null, cards: [...cards], rows }];
+}
+
+// For a file with no account number: the account whose saved transactions it overlaps, if that's clear.
+// A match is the same date, amount and start of description. Needs at least 3 matches, 80% of them on one account.
+export function guessAccount(saved, rows) {
+  const key = (t) => [t.date, Math.round(Number(t.amt) * 100), normDesc(t.desc).slice(0, 6)].join('|');
+  const by = new Map(); for (const t of saved || []) { if (!t.acct) continue; const k = key(t); if (!by.has(k)) by.set(k, []); by.get(k).push(t.acct); }
+  const votes = new Map(); let total = 0;
+  for (const t of rows || []) { const accts = by.get(key(t)); if (!accts) continue; total++; for (const a of new Set(accts)) votes.set(a, (votes.get(a) || 0) + 1); }
+  let best = '', n = 0; for (const [a, v] of votes) if (v > n) { best = a; n = v; }
+  return n >= 3 && n >= 0.8 * total ? best : '';
 }
 
 // ---------- CSV ----------
@@ -226,9 +234,7 @@ export function planReplace(saved, incoming, score = () => 0, days = 3) {
   for (const t of rest) {
     const head = normDesc(t.desc).slice(0, 6), d = Date.parse(t.date);
     const like = (x) => !used.has(x) && cents(x) === cents(t) && head.length >= 3 && normDesc(x.desc).slice(0, 6).startsWith(head) && Math.abs(Date.parse(x.date) - d) <= days * DAY;
-    let cands = [...replace, ...near].filter((x) => like(x) && (x.acct || '') === (t.acct || '')).sort(byScore);
-    // Filed under another account by an earlier import (e.g. a QIF before its card numbers were read): only copies being replaced anyway, same day.
-    if (!cands.length) cands = replace.filter((x) => like(x) && x.date === t.date).sort(byScore);
+    const cands = [...replace, ...near].filter((x) => like(x) && (x.acct || '') === (t.acct || '')).sort(byScore);
     if (cands.length) { used.add(cands[0]); if (!replace.includes(cands[0])) replace.push(cands[0]); rows.push(carry(t, cands[0])); }
     else rows.push({ ...t });
   }
