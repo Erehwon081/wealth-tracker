@@ -51,7 +51,10 @@ Agreed design: (1) OFX/QFX/QIF reader with balances; (2) guided CSV importer tha
 
 Suggested order: 10, 9, 7, 8. The walkthrough goes last because it describes the screens, so it should be written once they've stopped changing.
 
-### 7. Account balances view
+### 7. Account balances view ✅ Done (11 Nov 2026)
+
+Built as an Accounts card on Home, at the user's request: each account's latest balance, its full account number (saved from CSV and OFX files, or typed in), and the date the balance is from. Numbers are shown in full, not masked.
+
 - A clearer list of every account's current balance, grouped (everyday and savings, cards, loans, investments, property), with the date each balance is from and where it came from (import, PDF or typed in).
 - Each account can store its full account number (and BSB), shown in the view. On the device only, like everything else, and included in backups. Today only the last four digits are kept, as the import match key (`a.match`).
 - To decide: where it lives (a card on Home, or the top of Wealth), and whether numbers are masked until tapped.
@@ -75,6 +78,7 @@ Recognised by card numbers in the memos (several cards can share one account), o
 The user's first priority among these: safe-to-spend, the review queue and the app lock. How they rank against items 7 to 9 isn't agreed yet.
 
 ### First priority
+- **Recurring charges you can edit.** Spending's Recurring charges card is worked out from one month's transactions and can't be changed, so it lists everyday shops (supermarkets, petrol) as recurring. Let the user add, edit and remove recurring charges (name, amount, how often, next date), with detected ones only suggested until confirmed. This is the bills list safe-to-spend and the cash flow forecast need, so build it with or before them.
 - **Safe-to-spend.** One number: what's left this month after bills, set-asides and savings. It needs a list of expected bills, which overlaps the cancelled item 2 (bills and set-asides): agree with the user how much of that it needs, for example recurring charges detected from imports, without the sinking-fund screens.
 - **Review queue.** New imports land as unreviewed; clear each with one tap (accept the category or change it). Needs a `reviewed` flag on transactions, defaulting to reviewed for existing data.
 - **App lock.** Fingerprint or PIN when the Android app opens or returns from the background. Needs a biometric Capacitor plugin; the website can't do this properly.

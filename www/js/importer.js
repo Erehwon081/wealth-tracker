@@ -40,7 +40,7 @@ const tag = (block, name) => { const m = block.match(new RegExp('<' + name + '>(
 export function parseOfx(text) {
   const out = []; const stmts = String(text).split(/<(?=(?:CC)?STMTRS>)/i).slice(1);
   for (const st of stmts) {
-    const card = /^CCSTMTRS>/i.test(st); const acctId = tag(st, 'ACCTID'); const acct = last4(acctId) || acctId.slice(-4);
+    const card = /^CCSTMTRS>/i.test(st); const acctId = tag(st, 'ACCTID'); const acct = last4(acctId) || acctId.slice(-4); const number = acctId.trim();
     const lb = st.match(/<LEDGERBAL>([\s\S]*?)(<\/LEDGERBAL>|<AVAILBAL>|<\/(?:CC)?STMTRS>|$)/i);
     const balance = lb ? parseAmount(tag(lb[1], 'BALAMT')) : null; const balanceDate = lb ? parseDate(tag(lb[1], 'DTASOF')) : null;
     const rows = [];
@@ -51,7 +51,7 @@ export function parseOfx(text) {
     }
     // Carry the closing balance on the newest transaction, which is where the app reads month-end balances from.
     if (balance != null && rows.length) { const newest = rows.reduce((a, b) => (b.date > a.date ? b : a)); newest.bal = balance; }
-    out.push({ acct, kind: card ? 'card' : 'cash', balance, balanceDate, rows });
+    out.push({ acct, number, kind: card ? 'card' : 'cash', balance, balanceDate, rows });
   }
   return out;
 }
@@ -127,7 +127,10 @@ export function applyMapping(rows, m) {
     if (amt == null) { const d = parseAmount(g(r, 'debit')), c = parseAmount(g(r, 'credit')); if (d == null && c == null) continue; amt = Math.abs(c || 0) - Math.abs(d || 0); }
     if (m.flip) amt = -amt;
     const balTxt = g(r, 'balance'); const bal = balTxt === '' ? null : parseAmount(balTxt);
-    out.push({ date, amt, desc: g(r, 'desc'), merchant: g(r, 'merchant'), acct: last4(g(r, 'account')), bal, type: g(r, 'type'), nabCat: g(r, 'category') });
+    const t = { date, amt, desc: g(r, 'desc'), merchant: g(r, 'merchant'), acct: last4(g(r, 'account')), bal, type: g(r, 'type'), nabCat: g(r, 'category') };
+    // The full account number, for the account's details. The app takes it off the row before saving.
+    if (g(r, 'account').trim()) Object.defineProperty(t, 'acctNo', { value: g(r, 'account').trim().replace(/\s+/g, ' '), enumerable: false });
+    out.push(t);
   }
   return out;
 }
