@@ -4,6 +4,8 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+## 1.0.34 (11 Nov 2026)
+
 ### Added
 - An Accounts card on Home lists your everyday accounts and cards with their latest balance, account number and the date the balance is from. Numbers show only their last four digits until you tap Show numbers. They're saved from your CSV and OFX files, or type them in under Wealth > edit an account.
 
