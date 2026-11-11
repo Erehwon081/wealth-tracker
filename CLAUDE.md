@@ -31,7 +31,7 @@ Backup file: `{"format":"wealth-tracker-backup","version":1,config,accounts[],mo
 
 ## Handover between chats
 
-Each release or batch of work happens in a new Claude Code chat, so this repo is the only memory. At the start of a chat, read `docs/DECISIONS.md` for the reasons behind past choices and the open threads, and `docs/ROADMAP.md` for the planned features and their agreed order. Before the chat ends, update it: add decisions worth keeping (with the reason), add or close open threads, and add a dated line to its Log. Keep entries short. Don't copy the changelog into it.
+Each release or batch of work happens in a new Claude Code chat, so this repo is the only memory. At the start of a chat, read `docs/DECISIONS.md` for the reasons behind past choices and the open threads, and `docs/ROADMAP.md` for the planned features and their agreed order. Keep the Roadmap section of `README.md` in step with it. Before the chat ends, update it: add decisions worth keeping (with the reason), add or close open threads, and add a dated line to its Log. Keep entries short. Don't copy the changelog into it.
 
 ## Workflow the user expects
 

@@ -1,10 +1,26 @@
 # Wealth Tracker
 
-A local-first personal finance web app: net worth, monthly check-ins, NAB CSV and account-list PDF imports, budgets, investments and housing scenarios. It installs on Android from Chrome and works offline.
+A local-first personal finance web app: net worth, monthly check-ins, bank file imports (CSV, OFX, QIF and NAB's account-list PDF), budgets, investments and housing scenarios. It installs on Android from Chrome and works offline.
 
 All data stays on the device in IndexedDB. There is no backend and no analytics. The only network request the app makes is fetching the Google Sheets price links you paste into Settings, and the page's Content Security Policy blocks everything else.
 
-App: https://erehwon081.github.io/wealth-tracker/
+App: https://erehwon081.github.io/wealth-tracker/ · Android APKs: https://github.com/Erehwon081/wealth-tracker/releases
+
+## Roadmap
+
+The details, the agreed order and the reasons are in [docs/ROADMAP.md](docs/ROADMAP.md). What's changed in each release is in [CHANGELOG.md](CHANGELOG.md).
+
+Done: month-end reminders, mortgage what-if, house ledger, tax year view, import from any bank, QIF account recognition, and the Accounts card on Home.
+
+Next, in the suggested order:
+
+1. Recurring charges you can add, edit and remove (the bills list safe-to-spend needs)
+2. Safe-to-spend: what's left this month after bills and savings
+3. Review queue for new imports, alongside adding and removing spending categories
+4. App lock with fingerprint or PIN (can go in any time)
+5. Guided walkthrough for new users (last, once the screens settle)
+
+Later: cash flow forecast, split transactions, tags across categories, rollover budgets, savings goals, benchmark against an index fund, dividend calendar, CSV export of everything, a home screen widget and a year in review.
 
 ## Layout
 
