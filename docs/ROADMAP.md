@@ -64,5 +64,29 @@ Suggested order: 10, 9, 7, 8. The walkthrough goes last because it describes the
 - Categories are fixed in code today (`SPEND_CATS` in `app.js`), with their own icons and colours. Make the spending list editable in Settings: add (name, icon, colour), rename, hide or remove. Flow categories (income, transfers, mortgage, partner) stay fixed, because the app's maths depends on them.
 - Removing a category in use asks which category its transactions, rules and budget move to. Renaming updates them. Must stay backup-compatible: older backups use the built-in names.
 
-### 10. Remember which account a QIF file is for
+### 10. Remember which account a QIF file is for ✅ Done (11 Nov 2026)
+
+The user's bank puts "Card ending NNNN" in each memo, so rows are grouped by card. QIFs with no number anywhere still ask; the overlap and file-name ideas below are left for if that comes up.
+
 - QIF files from most banks have no account number, so every import asks. Options, simplest first: recognise the account from transactions already saved (if the file overlaps one account's saved transactions, use it); remember the answer by the file name's pattern; read the account name if the file has an `!Account` block. Check a real (scrubbed) QIF from the user's bank first.
+
+## Ideas from other apps, added 11 Nov 2026
+
+The user's first priority among these: safe-to-spend, the review queue and the app lock. How they rank against items 7 to 9 isn't agreed yet.
+
+### First priority
+- **Safe-to-spend.** One number: what's left this month after bills, set-asides and savings. It needs a list of expected bills, which overlaps the cancelled item 2 (bills and set-asides): agree with the user how much of that it needs, for example recurring charges detected from imports, without the sinking-fund screens.
+- **Review queue.** New imports land as unreviewed; clear each with one tap (accept the category or change it). Needs a `reviewed` flag on transactions, defaulting to reviewed for existing data.
+- **App lock.** Fingerprint or PIN when the Android app opens or returns from the background. Needs a biometric Capacitor plugin; the website can't do this properly.
+
+### Later
+- **Cash flow forecast.** The balance projected forward from pay days and recurring bills, as a calendar, so a tight week shows up early.
+- **Split a transaction** across categories, and part of it as the partner's.
+- **Tags across categories** (a trip, a renovation), each with its total.
+- **Rollover budgets.** Money not spent in a category carries into next month. Overlaps item 2's sinking funds.
+- **Savings goals** with a target, a date and the monthly amount needed. Also part of the cancelled item 2.
+- **Benchmark.** The portfolio's return, dividends included, against an index fund such as VAS or VGS. Needs index prices, which could come from the user's price sheet.
+- **Dividend calendar** of expected payments and franking credits.
+- **CSV export of everything.**
+- **Home screen widget** (Android) showing net worth or safe-to-spend. Needs native code in the generated Android project.
+- **Year in review**: biggest categories, savings rate, net worth change, top merchants.

@@ -385,6 +385,21 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   await ip.click('.sheet-bg:last-child .btn.primary'); await ip.waitForTimeout(400);
   const savedRules = await ip.evaluate(async () => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); }); return new Promise((res) => { const q = db.transaction('config').objectStore('config').get('app'); q.onsuccess = () => res(q.result.rules); }); });
   ok(JSON.stringify(savedRules) === JSON.stringify([{ match: 'SPOTIFY', cat: 'Entertainment' }]), 'a category rule saves from Settings ' + JSON.stringify(savedRules));
+  // QIF with the card number in each memo: linked once, then never asks which account
+  const qifPath = path.join(tmp, 'Transactions_10.qif');
+  await ip.evaluate(() => document.querySelectorAll('.sheet-bg').forEach((b) => b.remove()));
+  fs.writeFileSync(qifPath, '!Type:CCard\nD12/11/26\nT-25.60\nPEXAMPLE SHOP     SYDNEY\nMCard ending 4321\n^\nD12/11/26\nT-8.00\nPCORNER CAFE\nMCard ending 4321\n^\n');
+  await ip.click('.tab[data-tab=checkin]'); await ip.waitForTimeout(300);
+  await ipick('#v-checkin [data-pick=csvIn]', qifPath); await ip.waitForTimeout(500);
+  const qs = await ip.textContent('.sheet');
+  ok(qs.includes('Account ending 4321') && !qs.includes("doesn't say which account"), 'a QIF with card numbers in its memos asks to link the card, not which account');
+  await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(900);
+  fs.writeFileSync(qifPath, '!Type:CCard\nD13/11/26\nT-4.50\nPBAKERY\nMCard ending 4321\n^\n');
+  await ipick('#v-checkin [data-pick=csvIn]', qifPath); await ip.waitForTimeout(900);
+  ok(!(await ip.locator('.sheet').count()) && (await ip.textContent('.toast')).includes('Imported 1 new transaction'), 'the next QIF for that card imports without asking');
+  await ip.click('.tab[data-tab=spend]'); await ip.waitForTimeout(500);
+  const qtx = await ip.textContent('#s-tx');
+  ok(qtx.includes('CORNER CAFE') && !qtx.includes('Card ending'), 'the card memo is left out of the description');
   ok(ierrors.length === 0, 'no page errors in setup and import ' + JSON.stringify(ierrors));
   await ictx.close();
 

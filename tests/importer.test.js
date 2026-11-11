@@ -39,6 +39,23 @@ test('QIF: day-first dates, payee and memo', () => {
   assert.deepEqual(a.rows.map((r) => [r.date, r.amt, r.desc]), [['2026-12-03', -42.5, 'WOOLWORTHS Card purchase'], ['2026-12-15', 4820, 'SALARY']]);
 });
 
+test('QIF: the card number in each memo files rows by card, and stays out of the description', () => {
+  const qif = '!Type:CCard\nD11/11/26\nT-25.60\nPEXAMPLE SHOP    SYDNEY\nMCard ending 1111\n^\nD10/11/26\nT-8.00\nPCAFE\nMCard ending 2222\n^\nD09/11/26\nT300.00\nPPAYMENT\nMCard ending 1111\n^\n';
+  const gs = parseQif(qif);
+  assert.deepEqual(gs.map((g) => [g.acct, g.kind, g.rows.length]), [['1111', 'card', 2], ['2222', 'card', 1]]);
+  assert.deepEqual(gs[0].rows.map((r) => [r.date, r.amt, r.desc, r.acct]), [['2026-11-11', -25.6, 'EXAMPLE SHOP    SYDNEY', '1111'], ['2026-11-09', 300, 'PAYMENT', '1111']]);
+  assert.equal(parseQif('!Type:Bank\nD01/12/26\nT-1\nPX\nMAccount 082-000 12345678\n^\n')[0].acct, '5678');
+  assert.equal(parseQif('!Type:Bank\nD01/12/26\nT-1\nPX\n^\n')[0].acct, '');
+});
+
+test('replacing carries categories from copies an earlier import filed under the wrong account', () => {
+  const saved = [{ date: '2026-11-10', amt: -8, desc: 'CAFE Card ending 2222', acct: '1111', cat: 'Cafes', userCat: true }, { date: '2026-11-11', amt: -25.6, desc: 'EXAMPLE SHOP Card ending 1111', acct: '1111', cat: 'Gifts', userCat: true }];
+  const incoming = parseQif('!Type:CCard\nD11/11/26\nT-25.60\nPEXAMPLE SHOP\nMCard ending 1111\n^\nD10/11/26\nT-8.00\nPCAFE\nMCard ending 2222\n^\nD09/11/26\nT-3.00\nPPARKING\nMCard ending 1111\n^\n');
+  const plan = planReplace(saved, incoming);
+  assert.equal(plan.replace.length, 2); assert.equal(plan.carried, 2);
+  assert.deepEqual(plan.rows.map((r) => [r.acct, r.cat]).sort(), [['1111', undefined], ['1111', 'Gifts'], ['2222', 'Cafes']]);
+});
+
 test('NAB export is recognised without asking, whatever the column order', () => {
   const nab = 'Date,Amount,Account Number,,Transaction Type,Transaction Details,Balance,Category,Merchant Name\n05 Dec 26,-42.50,082-000 12342222,,EFTPOS,WOOLWORTHS 1234 MELBOURNE,1000.10,Groceries,Woolworths\n';
   const r = resolveMapping(readCsv(nab));

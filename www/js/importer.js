@@ -57,14 +57,24 @@ export function parseOfx(text) {
 }
 
 // ---------- QIF ----------
+// QIF has no account number field, but some banks put one in each transaction's memo ("Card ending 1234").
+// Those rows are grouped by it; a memo that only names the card isn't added to the description.
+const QIF_ACCT = /^\s*(?:(?:credit |debit )?card|account|acct)\b\D*[\d\s\-x*]*?(\d{4})\s*$/i;
 export function parseQif(text) {
-  const rows = []; let cur = {};
+  const rows = []; let cur = {}, card = false;
   for (const line of String(text).split(/\r?\n/)) {
     const k = line[0], v = line.slice(1).trim();
-    if (k === '^') { const date = parseDate(cur.D), amt = parseAmount(cur.T ?? cur.U); if (date && amt != null) rows.push({ date, amt, desc: [cur.P, cur.M && cur.M !== cur.P ? cur.M : ''].filter(Boolean).join(' ').trim(), merchant: '', acct: '', bal: null, type: '', nabCat: '' }); cur = {}; }
-    else if (k && k !== '!') cur[k] = v;
+    if (k === '!' && /^!Type:\s*CCard/i.test(line)) card = true;
+    if (k === '^') {
+      const date = parseDate(cur.D), amt = parseAmount(cur.T ?? cur.U); const am = (cur.M || '').match(QIF_ACCT);
+      const memo = am ? '' : cur.M;
+      if (date && amt != null) rows.push({ date, amt, desc: [cur.P, memo && memo !== cur.P ? memo : ''].filter(Boolean).join(' ').trim(), merchant: '', acct: am ? am[1] : '', bal: null, type: '', nabCat: '' });
+      cur = {};
+    } else if (k && k !== '!') cur[k] = v;
   }
-  return [{ acct: '', kind: 'cash', balance: null, balanceDate: null, rows }];
+  const by = new Map(); for (const t of rows) { if (!by.has(t.acct)) by.set(t.acct, []); by.get(t.acct).push(t); }
+  if (!by.size) by.set('', []);
+  return [...by.entries()].map(([acct, list]) => ({ acct, kind: card ? 'card' : 'cash', balance: null, balanceDate: null, rows: list }));
 }
 
 // ---------- CSV ----------
@@ -160,7 +170,7 @@ export function newOnly(existing, incoming, days = 3) {
     const a = t.acct || '', r = range.get(a), head = normDesc(t.desc).slice(0, 6), d = Date.parse(t.date);
     const from = Date.parse(r[0]) - days * DAY, to = Date.parse(r[1]) + days * DAY;
     const hit = (existing || []).find((e) => !used.has(e) && (e.acct || '') === a && cents(e) === cents(t) && Date.parse(e.date) >= from && Date.parse(e.date) <= to
-      && Math.abs(Date.parse(e.date) - d) <= days * DAY && head.length >= 3 && normDesc(e.desc).slice(0, 6) === head);
+      && Math.abs(Date.parse(e.date) - d) <= days * DAY && head.length >= 3 && normDesc(e.desc).slice(0, 6).startsWith(head));
     if (hit) used.add(hit); else fresh.push(t);
   }
   return fresh;
@@ -215,7 +225,10 @@ export function planReplace(saved, incoming, score = () => 0, days = 3) {
   // 2. Pending purchases that went through with a new date or longer description.
   for (const t of rest) {
     const head = normDesc(t.desc).slice(0, 6), d = Date.parse(t.date);
-    const cands = [...replace, ...near].filter((x) => !used.has(x) && (x.acct || '') === (t.acct || '') && cents(x) === cents(t) && head.length >= 3 && normDesc(x.desc).slice(0, 6) === head && Math.abs(Date.parse(x.date) - d) <= days * DAY).sort(byScore);
+    const like = (x) => !used.has(x) && cents(x) === cents(t) && head.length >= 3 && normDesc(x.desc).slice(0, 6).startsWith(head) && Math.abs(Date.parse(x.date) - d) <= days * DAY;
+    let cands = [...replace, ...near].filter((x) => like(x) && (x.acct || '') === (t.acct || '')).sort(byScore);
+    // Filed under another account by an earlier import (e.g. a QIF before its card numbers were read): only copies being replaced anyway, same day.
+    if (!cands.length) cands = replace.filter((x) => like(x) && x.date === t.date).sort(byScore);
     if (cands.length) { used.add(cands[0]); if (!replace.includes(cands[0])) replace.push(cands[0]); rows.push(carry(t, cands[0])); }
     else rows.push({ ...t });
   }
