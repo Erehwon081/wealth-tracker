@@ -190,6 +190,8 @@ function classify(r, c) { const out = classifyRaw(r, c); return { ...out, cat: m
 function classifyRaw(r, c) {
   const det = (r.desc || '').toUpperCase(); const type = (r.type || '').toUpperCase(); const amt = r.amt;
   for (const rule of c.rules || []) if (rule.match && det.includes(String(rule.match).toUpperCase())) return { cat: rule.cat };
+  const loan = r.acct && loanAcctMap().get(r.acct);
+  if (loan) return { cat: loan.type === 'mortgage' ? 'Mortgage' : 'Car loan' };
   if (partnerOn() && ((c.partnerCards || []).includes(r.acct) || (r.card && (c.partnerCards || []).includes(r.card)))) return { cat: "Partner's card" };
   if (type.includes('CREDIT CARD PAYMENT') || type.includes('CASH ADVANCE')) return { cat: 'Transfer' };
   if (type === 'FEES' || type.includes('INTEREST')) return { cat: 'Interest & fees' };
@@ -207,12 +209,19 @@ function classifyRaw(r, c) {
   if (['Rego', 'Personal care', 'Services', 'Other'].includes(seed)) return { cat: seed };
   return { cat: NAB_MAP[r.nabCat] || seed || 'Other' };
 }
+// Transactions on a home loan or other loan account: repayments come in as credits, interest is charged as a debit.
+// They mirror money already counted elsewhere (or paid by someone else), so they never count as income or spending.
+function loanAcctMap() { const m = new Map(); for (const a of S.accounts) if (a.type === 'mortgage' || a.type === 'loan') for (const k of acctKeys(a)) if (!m.has(k)) m.set(k, a); return m; }
+const isInterest = (t) => /INTEREST/i.test((t.desc || '') + ' ' + (t.type || ''));
 function isLumpy(t, lc = lumpyCats(), sc = null) { return t.lumpy ?? (lc.has(t.cat) || ((sc ? sc.has(t.cat) : isSpend(t.cat)) && -t.amt >= 400)); }
 function summarise(rows) {
   const s = { income: 0, otherIn: 0, rent: 0, carLoan: 0, mortgagePaid: 0, childSupport: 0, shonnyMortgage: 0, shonnyOther: 0, shonnyCard: 0, tagged: 0, spend: {}, lumpy: 0 };
-  const sc = new Set(spendCats()), lc = lumpyCats();
+  const sc = new Set(spendCats()), lc = lumpyCats(), lk = loanAcctMap();
+  const loanSide = { mortgage: 0, loan: 0, interest: 0, any: { mortgage: false, loan: false } };
   for (const t of rows) {
     const v = t.amt; const c = t.cat;
+    const la = t.acct && lk.get(t.acct);
+    if (la) { loanSide.any[la.type] = true; if (v > 0) loanSide[la.type] += v; else if (la.type === 'mortgage' && isInterest(t)) loanSide.interest -= v; continue; }
     if (c === 'Income') s.income += v; else if (c === 'Money in') s.otherIn += v;
     else if (c === 'Rent') s.rent -= v; else if (c === 'Car loan') s.carLoan -= v; else if (c === 'Mortgage') s.mortgagePaid -= v; else if (c === 'Child support') s.childSupport -= v;
     else if (c === 'Partner mortgage share') s.shonnyMortgage += v; else if (c === 'Partner other') s.shonnyOther += v;
@@ -222,6 +231,11 @@ function summarise(rows) {
     else if (sc.has(c)) { s.spend[c] = (s.spend[c] || 0) - v; if (isLumpy(t, lc, sc)) s.lumpy -= v; }
   }
   for (const k of Object.keys(s.spend)) s.spend[k] = Math.round(s.spend[k] * 100) / 100;
+  // A repayment can show on both sides: leaving your account and arriving in the loan account. Counting both would cancel
+  // them out, so take the larger side. The loan side also catches repayments from accounts that aren't imported; the
+  // paying side catches loans whose own transactions aren't imported (one split of two, say).
+  if (loanSide.any.mortgage) { s.mortgagePaid = Math.max(s.mortgagePaid, loanSide.mortgage); s.mortgageInterest = loanSide.interest; }
+  if (loanSide.any.loan) s.carLoan = Math.max(s.carLoan, loanSide.loan);
   return s;
 }
 function balancesFromRows(rows, dates = {}) {
@@ -243,7 +257,7 @@ async function applySummary(m, withBalances) {
   // Partner's share of your remaining card spending: what their transfers cover beyond the mortgage share and their card.
   // Purchases marked as theirs are already out of your spending and in their card total, so the transfers cover those first.
   const shonnyOnCard = Math.max(0, s.shonnyMortgage - half - s.shonnyCard);
-  const patch = { income: r2(s.income), otherIn: r2(s.otherIn), rent: r2(s.rent), carLoan: r2(s.carLoan), mortgagePaid: r2(s.mortgagePaid), shonnyMortgage: r2(s.shonnyMortgage), shonnyCard: r2(s.shonnyCard), shonnyTagged: r2(s.tagged), shonnyOnCard: r2(shonnyOnCard), sumV: 2, spend: s.spend, lumpy: r2(s.lumpy), txCount: rows.length, source: 'csv' };
+  const patch = { income: r2(s.income), otherIn: r2(s.otherIn), rent: r2(s.rent), carLoan: r2(s.carLoan), mortgagePaid: r2(s.mortgagePaid), shonnyMortgage: r2(s.shonnyMortgage), shonnyCard: r2(s.shonnyCard), shonnyTagged: r2(s.tagged), shonnyOnCard: r2(shonnyOnCard), mortgageInterest: s.mortgageInterest == null ? null : r2(s.mortgageInterest), sumV: 3, spend: s.spend, lumpy: r2(s.lumpy), txCount: rows.length, source: 'csv' };
   if (s.childSupport) patch.childSupport = r2(s.childSupport);
   if (withBalances) { const dates = {}; patch.balances = { ...(prev.balances || {}), ...balancesFromRows(rows, dates) }; patch.balDates = { ...(prev.balDates || {}), ...dates }; }
   S.months[m] = { ...prev, ...patch };
@@ -1536,15 +1550,25 @@ function ensureAllTx() { if (!allTxP) allTxP = store.getAll('tx').then((all) => 
 function ledgerTotals(house, fy) {
   const lg = house.ledger || {}; const insurers = (lg.insurers || []).map((x) => x.toUpperCase()).filter(Boolean);
   const morts = S.accounts.filter((a) => a.type === 'mortgage');
-  const t = { mortgage: 0, tracked: 0, interest: 0, rates: 0, insurance: 0, repairs: 0, partner: 0 };
+  const share = 1 - n(cfg().mortgageShare); const lk = loanAcctMap();
+  const t = { mortgage: 0, tracked: 0, interest: 0, actual: 0, estimated: false, rates: 0, insurance: 0, repairs: 0, partner: 0, loans: {} };
   for (const m of sortedMonths()) {
     if (fy !== 'all' && fyOf(m + '-01') !== fy) continue;
     const d = S.months[m] || {}; const paid = n(d.mortgagePaid);
-    t.mortgage += paid; t.tracked += paid; t.partner += n(d.shonnyMortgage); t.rates += n(d.spend?.[mapCat('Council rates')]); t.repairs += n(d.spend?.[mapCat('Home repairs')]);
-    if (paid > 0) t.interest += Math.min(paid, loanInputs(morts, m, true).reduce((s, l) => s + (Math.max(0, l.balance - l.offset) * l.rate) / 1200, 0));
+    t.mortgage += paid; t.tracked += paid; t.rates += n(d.spend?.[mapCat('Council rates')]); t.repairs += n(d.spend?.[mapCat('Home repairs')]);
+    // The partner pays their share of every repayment (Settings > Household, your mortgage share).
+    if (partnerOn()) t.partner += paid * share;
+    // Interest: what the loan accounts actually charged when their transactions are imported; otherwise an estimate.
+    if (has(d.mortgageInterest)) {
+      t.interest += n(d.mortgageInterest); t.actual += n(d.mortgageInterest);
+      for (const x of S.tx[m] || []) { const a = x.acct && lk.get(x.acct); if (!a || a.type !== 'mortgage') continue; const l = (t.loans[a.id] ||= { name: a.name, paid: 0, interest: 0 }); if (x.amt > 0) l.paid += x.amt; else if (isInterest(x)) l.interest -= x.amt; }
+    } else if (paid > 0) { t.estimated = true; t.interest += Math.min(paid, loanInputs(morts, m, true).reduce((s, l) => s + (Math.max(0, l.balance - l.offset) * l.rate) / 1200, 0)); }
     if (insurers.length) for (const x of S.tx[m] || []) if (x.cat === mapCat('Insurance') && x.amt < 0 && insurers.some((p) => ((x.merchant || '') + ' ' + (x.desc || '')).toUpperCase().includes(p))) t.insurance -= x.amt;
   }
-  for (const e of lg.manual || []) if ((fy === 'all' || +e.fy === fy) && e.type in t) t[e.type] += n(e.amount);
+  const manual = (lg.manual || []).filter((e) => (fy === 'all' || +e.fy === fy) && e.type in t);
+  for (const e of manual) t[e.type] += n(e.amount);
+  // Repayments typed in for earlier years get the partner's share too, unless their contribution for that year was typed in.
+  if (partnerOn()) for (const e of manual) if (e.type === 'mortgage' && !manual.some((x) => x.type === 'partner' && x.fy === e.fy)) t.partner += n(e.amount) * share;
   t.total = t.mortgage + t.rates + t.insurance + t.repairs; t.net = t.total - t.partner;
   return t;
 }
@@ -1561,14 +1585,15 @@ function renderLedger() {
   card.replaceChildren(el('div', { class: 'row' }, el('h2', { text: 'House ledger' }), el('button', { class: 'btn small', type: 'button', text: 'Edit', onclick: () => ledgerSheet(house) })),
     el('div', { class: 'row' }, el('span', { class: 'cap muted', text: `Paid toward ${house.name}` }), sel),
     el('div', { class: 'list' },
-      row(LEDGER_TYPES.mortgage, t.tracked > 0 ? `About ${$0(t.interest)} interest and ${$0(t.tracked - t.interest)} off the loan` : null, $0(t.mortgage)),
+      row(LEDGER_TYPES.mortgage, t.tracked > 0 ? `${t.estimated ? 'About ' : ''}${$0(t.interest)} interest and ${$0(Math.max(0, t.tracked - t.interest))} off the loan${t.estimated && t.actual ? `. ${$0(t.actual)} of the interest is from your loan accounts, the rest estimated` : ''}` : 'Import your home loan accounts\' transactions to count every repayment', $0(t.mortgage)),
+      ...Object.values(t.loans).filter(() => Object.keys(t.loans).length > 1).map((l) => el('div', { class: 'row', style: 'padding-left:12px' }, el('span', { class: 'cap' }, l.name, el('small', { class: 'cap muted', style: 'display:block', text: `${$0(l.interest)} interest, ${$0(Math.max(0, l.paid - l.interest))} off the loan` })), el('span', { class: 'num cap', text: $0(l.paid) }))),
       row(LEDGER_TYPES.rates, null, $0(t.rates)),
       row(LEDGER_TYPES.insurance, hasInsurer ? null : 'Add your insurer under Edit to count it', $0(t.insurance)),
       row(LEDGER_TYPES.repairs, `Spending filed as ${mapCat('Home repairs')}`, $0(t.repairs))),
     el('div', { class: 'row', style: 'padding-top:8px;border-top:1px solid var(--line)' }, el('strong', { text: 'Total paid' }), el('strong', { class: 'num', text: $0(t.total) })),
-    !partnerOn() ? null : el('div', { class: 'row' }, el('span', {}, `${pName()}'s contributions`, el('small', { class: 'cap muted', style: 'display:block', text: 'Mortgage-share transfers to you' })), el('span', { class: 'num', text: '−' + $0(t.partner).replace('−', '') })),
+    !partnerOn() ? null : el('div', { class: 'row' }, el('span', {}, `${pName()}'s share`, el('small', { class: 'cap muted', style: 'display:block', text: `${pct(1 - n(cfg().mortgageShare))} of the mortgage repayments` })), el('span', { class: 'num', text: '−' + $0(t.partner).replace('−', '') })),
     el('div', { class: 'row' }, el('strong', { text: 'Your net contribution' }), el('strong', { class: 'num', text: $0(t.net) })),
-    el('p', { class: 'cap muted', text: 'From your check-ins and imported transactions, plus anything you add under Edit. The interest split is an estimate from the loan balance and rate each month.' }));
+    el('p', { class: 'cap muted', text: `From your check-ins and imported transactions, plus anything you add under Edit. Repayments and interest come from your home loan accounts' own transactions when they're imported${t.estimated ? '; for other months, interest is estimated from the loan balance and rate' : ''}.` }));
   if (!allTxDone) ensureAllTx().then(() => { if (S.view === 'wealth') renderLedger(); });
 }
 function ledgerSheet(house) {
@@ -1809,10 +1834,18 @@ async function loadState() {
   S.draft = null; S.catFilter = null; allTxP = null; allTxDone = false;
   if (S.config?.rules?.some((r) => fixCat(r.cat) !== r.cat)) { S.config.rules = S.config.rules.map((r) => ({ ...r, cat: fixCat(r.cat) })); await store.put('config', 'app', clone(S.config)); }
   S.ready = { config: true, accounts: true, months: true };
-  // Months saved before marked purchases moved to the partner's card total are worked out again, once.
+  // Months saved before marked purchases moved to the partner's card total (v2), or before loan accounts' own transactions
+  // were read as repayments and interest (v3), are worked out again, once. Loan rows still on an older category are refiled.
   ensureAllTx().then(async () => {
-    let any = false;
-    for (const [m, rows] of Object.entries(S.tx)) if (S.months[m] && S.months[m].sumV !== 2 && rows.some((t) => t.partner)) { await applySummary(m, false); any = true; }
+    let any = false; const lk = loanAcctMap();
+    for (const [m, rows] of Object.entries(S.tx)) {
+      if (!S.months[m] || n(S.months[m].sumV) >= 3) continue;
+      const loanRows = rows.filter((t) => t.acct && lk.has(t.acct));
+      if (!loanRows.length && !rows.some((t) => t.partner)) continue;
+      for (const t of loanRows) if (!t.userCat) t.cat = lk.get(t.acct).type === 'mortgage' ? 'Mortgage' : 'Car loan';
+      if (loanRows.length) await writeDoc('tx/' + m, { rows });
+      await applySummary(m, false); any = true;
+    }
     if (any) render();
   });
 }

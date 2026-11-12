@@ -4,12 +4,18 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+### Changed
+- The house ledger counts every repayment made into your home loan accounts once you import those accounts' transactions. That includes repayments from accounts the app doesn't see, such as your partner's. Interest is what the loan actually charged, so the split between interest and paying off the loan is no longer an estimate for those months.
+- Your partner's part of the house costs is now their share of the mortgage repayments (50%, or whatever you set as your mortgage share in Settings), not the transfers they send you.
+
+### Fixed
+- Transactions on a home loan or car loan account no longer count as income or spending. A repayment arriving in the loan used to show as money in, interest charged on the loan was counted as spending under Interest & fees, and a repayment seen leaving your account and arriving in the loan could cancel itself out, which left the house ledger showing $0 in repayments. These transactions are now filed as Mortgage or Car loan, and months already saved are worked out again once.
+
 ## 1.0.35 (12 Nov 2026)
 
 ### Added
 - Add, rename, hide and remove spending categories in Settings > Importing > Edit spending categories. Each one can have its own icon and colour. Renaming a category moves its transactions, rules and budget target to the new name. Removing one asks which category they should move to. A hidden category drops out of the category lists but its transactions still count. Income, transfers, mortgage and the partner categories stay as they are, because the totals depend on them.
 - New imports wait in a To review list at the top of Spending. Tap Looks right if the category is right, or pick another one, or accept them all at once. Until then they're marked New in the transaction list. Transactions you already had don't need reviewing.
-
 - After a QIF import, the message says which account the file went to, with a Wrong account? button. Choosing the right account moves the transactions there, drops any it already has, and links the file's card numbers to it, so later files go to the right place. Before, one wrong answer meant every later QIF with that card went to the wrong account without asking.
 - The review list shows each transaction's account by name.
 

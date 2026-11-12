@@ -558,6 +558,32 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   ok(cerrors.length === 0, 'no page errors while editing categories ' + JSON.stringify(cerrors));
   await cctx.close();
 
+  // House ledger from the home loan account's own transactions: actual repayments and interest, the partner's share at 50%
+  const lctx = await browser.newContext({ ...devices['Pixel 7'] });
+  const lp = await lctx.newPage(); const lerrors = []; lp.on('pageerror', (e) => lerrors.push(e.message));
+  const ldb = (st, key) => lp.evaluate(async ([st, key]) => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); }); return new Promise((res) => { const q = db.transaction(st).objectStore(st).get(key); q.onsuccess = () => res(q.result); }); }, [st, key]);
+  await lp.goto(BASE); await lp.waitForTimeout(600); await lp.click('text=Load sample data'); await lp.waitForTimeout(800);
+  const oct0 = await ldb('months', '2026-10');
+  const loanOfx = path.join(tmp, 'homeloan.ofx');
+  fs.writeFileSync(loanOfx, 'OFXHEADER:100\n<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKACCTFROM><ACCTID>77775555</BANKACCTFROM><BANKTRANLIST>\n<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20261001<TRNAMT>2600.00<NAME>LOAN REPAYMENT\n<STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20261015<TRNAMT>1400.00<NAME>INTERNET PAYMENT LINKED ACC\n<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261031<TRNAMT>-1850.40<NAME>INTEREST CHARGED\n</BANKTRANLIST><LEDGERBAL><BALAMT>-610000.00<DTASOF>20261031</LEDGERBAL></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>\n');
+  await lp.click('.tab[data-tab=checkin]'); await lp.waitForTimeout(300);
+  const [lfc] = await Promise.all([lp.waitForEvent('filechooser'), lp.click('#v-checkin [data-pick=csvIn]')]); await lfc.setFiles(loanOfx); await lp.waitForTimeout(900);
+  if (await lp.locator('.sheet select').count()) { await lp.click('.sheet .btn.primary'); await lp.waitForTimeout(900); }
+  const oct1 = await ldb('months', '2026-10'); const octTx = await ldb('tx', '2026-10');
+  const sumS = (d) => Object.values(d.spend || {}).reduce((a, v) => a + v, 0);
+  ok(oct1.mortgagePaid === Math.max(4000, oct0.mortgagePaid) && oct1.mortgageInterest === 1850.4, `a home loan account's credits are the month's repayments and its interest charges are recorded (${oct1.mortgagePaid}, ${oct1.mortgageInterest})`);
+  ok(oct1.income === oct0.income && Math.abs(sumS(oct1) - sumS(oct0)) < 0.01, 'loan account transactions never count as income or spending ' + JSON.stringify([oct0.income, oct1.income, oct0.otherIn, oct1.otherIn, sumS(oct0), sumS(oct1), oct0.mortgagePaid]));
+  ok(octTx.filter((t) => t.acct === '5555').every((t) => t.cat === 'Mortgage'), 'loan account transactions are filed as Mortgage');
+  await lp.click('.tab[data-tab=wealth]'); await lp.waitForTimeout(500);
+  await lp.selectOption('#w-ledger select', '2027'); await lp.waitForTimeout(400);
+  const lt = await lp.textContent('#w-ledger');
+  ok(lt.includes('$1,850 of the interest is from your loan accounts'), 'the ledger uses the interest the loan account actually charged ' + lt.slice(0, 300));
+  const shareTxt = await lp.locator('#w-ledger .row', { hasText: 'share' }).textContent();
+  const mortTxt = await lp.locator('#w-ledger .row', { hasText: 'Mortgage repayments' }).first().textContent();
+  const mortAmt = parseFloat(mortTxt.match(/\$([\d,]+)\s*$/)[1].replace(/,/g, '')), shareAmt = parseFloat(shareTxt.match(/\$([\d,]+)/)[1].replace(/,/g, ''));
+  ok(shareTxt.includes('50% of the mortgage repayments') && Math.abs(shareAmt - mortAmt / 2) <= 1, `the partner's share is half the repayments (${shareAmt} of ${mortAmt})`);
+  ok(lerrors.length === 0, 'no page errors with loan account imports ' + JSON.stringify(lerrors));
+  await lctx.close();
   await browser.close();
   console.log(failed ? `${failed} failed` : 'all passed');
   process.exit(failed ? 1 : 0);
