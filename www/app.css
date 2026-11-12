@@ -77,6 +77,13 @@ p { margin: 0; }
 .btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .btn.small { padding: 5px 12px; font-size: var(--t-cap); }
 .btn:focus-visible, select:focus-visible, input:focus-visible, .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn.danger { color: var(--bad); border-color: var(--bad); }
+.picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.pickbtn { width: 40px; height: 40px; padding: 0; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--surface); color: var(--fg); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.pickbtn svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.pickbtn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.pickbtn.swatch { width: 32px; height: 32px; border-radius: 999px; border: 0; background: var(--c); margin: 4px; }
+.pickbtn.swatch[aria-pressed="true"] { background: var(--c); box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--c); }
 .btns { display: flex; gap: var(--s2); flex-wrap: wrap; }
 .field { display: grid; grid-template-columns: minmax(0, 1fr) 8rem; align-items: center; gap: var(--s3); padding-block: 8px; border-top: 1px solid var(--line); }
 .field:first-of-type { border-top: 0; }

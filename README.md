@@ -10,17 +10,18 @@ App: https://erehwon081.github.io/wealth-tracker/ · Android APKs: https://githu
 
 The details, the agreed order and the reasons are in [docs/ROADMAP.md](docs/ROADMAP.md). What's changed in each release is in [CHANGELOG.md](CHANGELOG.md).
 
-Done: month-end reminders, mortgage what-if, house ledger, tax year view, import from any bank, QIF account recognition, and the Accounts card on Home.
+Features are numbered and grouped by what they do: importing and transactions (1–6), spending, bills and budgets (7–13), accounts and the big picture (14–16), property and loans (17–18), investing and tax (19–21), and the app itself (22–24).
+
+Done: bank import from any bank (1), QIF account recognition (2), the review queue for new imports (3), adding and removing spending categories (7), the Accounts card on Home (14), mortgage what-if (17), house ledger (18), tax year view (19) and month-end reminders (22). Bills and set-asides (13) was cancelled.
 
 Next, in the suggested order:
 
-1. Recurring charges you can add, edit and remove (the bills list safe-to-spend needs)
-2. Safe-to-spend: what's left this month after bills and savings
-3. Review queue for new imports, alongside adding and removing spending categories
-4. App lock with fingerprint or PIN (can go in any time)
-5. Guided walkthrough for new users (last, once the screens settle)
+1. Recurring charges you can add, edit and remove (8), the bills list safe-to-spend needs
+2. Safe-to-spend (9): what's left this month after bills and savings
+3. App lock with fingerprint or PIN (23), which can go in any time
+4. Guided walkthrough for new users (24), last, once the screens settle
 
-Later: cash flow forecast, split transactions, tags across categories, rollover budgets, savings goals, benchmark against an index fund, dividend calendar, CSV export of everything, a home screen widget and a year in review.
+Later: split transactions (4), tags across categories (5), CSV export of everything (6), cash flow forecast (10), rollover budgets (11), savings goals (12), a year in review (15), a home screen widget (16), benchmark against an index fund (20) and a dividend calendar (21).
 
 ## Layout
 

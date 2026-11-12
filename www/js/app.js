@@ -12,7 +12,6 @@ import { fyOf, fyLabel, fyList, fySummary, matchParcels, unitsHeld, costHeld, to
 // ---------- constants ----------
 const SPEND_CATS = ['Groceries','Eating out','Cafes','Fuel','Transport','Bills','Insurance','Health','Personal care','Shopping','Clothing','Home & furniture','Entertainment','Subscriptions','Services','Pets','Gifts','Home repairs','Rego','Council rates','Interest & fees','Other'];
 const FLOW_CATS = ['Income','Money in','Rent','Mortgage','Car loan','Child support','Partner mortgage share','Partner other','Transfer',"Partner's card"];
-const ALL_CATS = [...SPEND_CATS, ...FLOW_CATS];
 // Icon (24px stroke path) and colour token for each category.
 const ICONS = {
   cart: 'M3 4h2l2.4 11h11l2-8H6.5M9 20h.01M18 20h.01', fork: 'M7 3v8a2 2 0 0 0 4 0V3M9 11v10M17 3c-2 0-3 2-3 5s1 4 3 4v9', cup: 'M4 8h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM17 9h1a3 3 0 0 1 0 6h-1M8 3v2M12 3v2',
@@ -31,9 +30,9 @@ const CAT_LOOK = {
   Income: ['down', 'teal'], 'Money in': ['down', 'teal'], Rent: ['home', 'yellow'], Mortgage: ['home', 'blue'], 'Car loan': ['car', 'grey'], 'Child support': ['user', 'grey'],
   'Partner mortgage share': ['user', 'violet'], 'Partner other': ['user', 'violet'], Transfer: ['arrows', 'grey'], "Partner's card": ['card', 'violet']
 };
-const catColor = (k) => `var(--c-${(CAT_LOOK[k] || CAT_LOOK.Other)[1]})`;
+const catColor = (k) => `var(--c-${catLook(k)[1]})`;
 function catIcon(k) {
-  const [ic] = CAT_LOOK[k] || CAT_LOOK.Other;
+  const [ic] = catLook(k);
   const ns = 'http://www.w3.org/2000/svg'; const svg = document.createElementNS(ns, 'svg'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
   const path = document.createElementNS(ns, 'path'); path.setAttribute('d', ICONS[ic]); svg.append(path);
   return el('span', { class: 'ci', style: `--c:${catColor(k)}` }, svg);
@@ -107,6 +106,30 @@ const partnerOn = () => cfg().hasPartner !== false;
 const pName = () => (cfg().partnerName || '').trim() || 'Partner';
 const pLabel = (k) => String(k).replace(/Partner/g, pName());
 
+// ---------- spending categories ----------
+// The spending list can be edited in Settings (config.spendCats: [{name, icon, color, hidden}]); without it, the built-in list.
+// Flow categories (income, transfers, mortgage, partner) stay fixed, because the maths depends on them.
+// config.catMap sends a built-in or older name to the category that replaced it, so imports and built-in rules follow renames.
+const COLOURS = ['teal', 'orange', 'pink', 'blue', 'yellow', 'red', 'violet', 'grey'];
+const defaultCats = () => SPEND_CATS.map((name) => ({ name, icon: CAT_LOOK[name][0], color: CAT_LOOK[name][1] }));
+const catList = () => (Array.isArray(S.config?.spendCats) && S.config.spendCats.length ? S.config.spendCats : defaultCats());
+const spendCats = () => catList().map((x) => x.name);
+const isSpend = (k) => catList().some((x) => x.name === k);
+const allCats = () => [...spendCats(), ...FLOW_CATS];
+function mapCat(k) { const m = S.config?.catMap || {}; for (let i = 0; i < 10 && m[k] && m[k] !== k; i++) k = m[k]; return k; }
+const lumpyCats = () => new Set([...LUMPY_CATS].map(mapCat));
+// Categories offered in a picker: the visible spending ones, then the flow ones. The current one always stays in the list.
+function pickCats(cur) {
+  const list = [...catList().filter((x) => !x.hidden).map((x) => x.name), ...FLOW_CATS.filter((k) => partnerOn() || !/Partner/.test(k))];
+  if (cur && !list.includes(cur)) list.push(cur);
+  return list;
+}
+function catLook(k) {
+  const x = catList().find((c) => c.name === k);
+  if (x) return [ICONS[x.icon] ? x.icon : 'dots', COLOURS.includes(x.color) ? x.color : 'grey'];
+  return CAT_LOOK[k] || CAT_LOOK.Other;
+}
+
 // ---------- persistence ----------
 // Paths keep the shape the app was written against: app/config, accounts/<id>, months/<YYYY-MM>, tx/<YYYY-MM>, holdings/<id>.
 const storeFor = (path) => { const [col, id] = path.split('/'); return col === 'app' ? ['config', 'app'] : [col, id]; };
@@ -162,7 +185,9 @@ function payoff(balance, ratePct, payment) {
 }
 
 // ---------- CSV ----------
-function classify(r, c) {
+// Built-in names are passed through catMap, so a renamed or removed category's transactions go where the user moved them.
+function classify(r, c) { const out = classifyRaw(r, c); return { ...out, cat: mapCat(out.cat) }; }
+function classifyRaw(r, c) {
   const det = (r.desc || '').toUpperCase(); const type = (r.type || '').toUpperCase(); const amt = r.amt;
   for (const rule of c.rules || []) if (rule.match && det.includes(String(rule.match).toUpperCase())) return { cat: rule.cat };
   if (partnerOn() && ((c.partnerCards || []).includes(r.acct) || (r.card && (c.partnerCards || []).includes(r.card)))) return { cat: "Partner's card" };
@@ -182,16 +207,19 @@ function classify(r, c) {
   if (['Rego', 'Personal care', 'Services', 'Other'].includes(seed)) return { cat: seed };
   return { cat: NAB_MAP[r.nabCat] || seed || 'Other' };
 }
-function isLumpy(t) { return t.lumpy ?? (LUMPY_CATS.has(t.cat) || (SPEND_CATS.includes(t.cat) && -t.amt >= 400)); }
+function isLumpy(t, lc = lumpyCats(), sc = null) { return t.lumpy ?? (lc.has(t.cat) || ((sc ? sc.has(t.cat) : isSpend(t.cat)) && -t.amt >= 400)); }
 function summarise(rows) {
   const s = { income: 0, otherIn: 0, rent: 0, carLoan: 0, mortgagePaid: 0, childSupport: 0, shonnyMortgage: 0, shonnyOther: 0, shonnyCard: 0, tagged: 0, spend: {}, lumpy: 0 };
+  const sc = new Set(spendCats()), lc = lumpyCats();
   for (const t of rows) {
     const v = t.amt; const c = t.cat;
     if (c === 'Income') s.income += v; else if (c === 'Money in') s.otherIn += v;
     else if (c === 'Rent') s.rent -= v; else if (c === 'Car loan') s.carLoan -= v; else if (c === 'Mortgage') s.mortgagePaid -= v; else if (c === 'Child support') s.childSupport -= v;
     else if (c === 'Partner mortgage share') s.shonnyMortgage += v; else if (c === 'Partner other') s.shonnyOther += v;
     else if (c === "Partner's card") s.shonnyCard -= v;
-    else if (SPEND_CATS.includes(c)) { s.spend[c] = (s.spend[c] || 0) - v; if (isLumpy(t)) s.lumpy -= v; if (t.partner) s.tagged -= v; }
+    // A purchase marked as the partner's counts with their card, not in your spending.
+    else if (sc.has(c) && t.partner) { s.shonnyCard -= v; s.tagged -= v; }
+    else if (sc.has(c)) { s.spend[c] = (s.spend[c] || 0) - v; if (isLumpy(t, lc, sc)) s.lumpy -= v; }
   }
   for (const k of Object.keys(s.spend)) s.spend[k] = Math.round(s.spend[k] * 100) / 100;
   return s;
@@ -212,10 +240,10 @@ async function applySummary(m, withBalances) {
   const rows = S.tx[m] || []; const s = summarise(rows); const c = cfg();
   const prev = S.months[m] || {};
   const half = s.mortgagePaid * c.mortgageShare;
-  // Partner's share on your card: the larger of what their extra transfers cover and what you've tagged as theirs.
-  // Taking the larger avoids counting a tagged purchase twice when a transfer already paid you back for it.
-  const shonnyOnCard = Math.max(0, s.shonnyMortgage - half - s.shonnyCard, s.tagged);
-  const patch = { income: r2(s.income), otherIn: r2(s.otherIn), rent: r2(s.rent), carLoan: r2(s.carLoan), mortgagePaid: r2(s.mortgagePaid), shonnyMortgage: r2(s.shonnyMortgage), shonnyCard: r2(s.shonnyCard), shonnyOnCard: r2(shonnyOnCard), spend: s.spend, lumpy: r2(s.lumpy), txCount: rows.length, source: 'csv' };
+  // Partner's share of your remaining card spending: what their transfers cover beyond the mortgage share and their card.
+  // Purchases marked as theirs are already out of your spending and in their card total, so the transfers cover those first.
+  const shonnyOnCard = Math.max(0, s.shonnyMortgage - half - s.shonnyCard);
+  const patch = { income: r2(s.income), otherIn: r2(s.otherIn), rent: r2(s.rent), carLoan: r2(s.carLoan), mortgagePaid: r2(s.mortgagePaid), shonnyMortgage: r2(s.shonnyMortgage), shonnyCard: r2(s.shonnyCard), shonnyTagged: r2(s.tagged), shonnyOnCard: r2(shonnyOnCard), sumV: 2, spend: s.spend, lumpy: r2(s.lumpy), txCount: rows.length, source: 'csv' };
   if (s.childSupport) patch.childSupport = r2(s.childSupport);
   if (withBalances) { const dates = {}; patch.balances = { ...(prev.balances || {}), ...balancesFromRows(rows, dates) }; patch.balDates = { ...(prev.balDates || {}), ...dates }; }
   S.months[m] = { ...prev, ...patch };
@@ -225,7 +253,7 @@ const r2 = (v) => Math.round(v * 100) / 100;
 // Older data names the partner categories after the person ("Shonny's card", "Shonny mortgage share", "Shonny other").
 // Map them to the stored keys the app uses; the display name comes from Settings.
 const LEGACY_CATS = [[/^.+['’]s card$/i, "Partner's card"], [/^.+ mortgage share$/i, 'Partner mortgage share'], [/^.+ other$/i, 'Partner other']];
-function fixCat(cat) { if (!cat || ALL_CATS.includes(cat)) return cat; for (const [re, key] of LEGACY_CATS) if (re.test(cat)) return key; return cat; }
+function fixCat(cat) { if (!cat || allCats().includes(cat)) return cat; const moved = mapCat(cat); if (moved !== cat) return moved; for (const [re, key] of LEGACY_CATS) if (re.test(cat)) return key; return cat; }
 function fixRows(rows) { let changed = false; for (const t of rows) { const c = fixCat(t.cat); if (c !== t.cat) { t.cat = c; changed = true; } } return changed; }
 async function loadTx(m) {
   if (S.tx[m]) return S.tx[m];
@@ -514,7 +542,7 @@ function renderCheckin(force) {
   for (const [k, l, s] of F) { const id = 'f-' + k; const inp = moneyInput(id, d[k], l); inp.querySelector('input').addEventListener('input', (e) => { S.draft.dirty = true; d[k] = e.target.value.trim() === '' ? null : n(e.target.value); renderCheckinResult(); }); flow.append(fieldRow(l, s, inp, id)); }
   const spendTotal = Object.values(d.spend || {}).reduce((s, v) => s + n(v), 0);
   const sid = 'f-spendtotal'; const sInp = moneyInput(sid, spendTotal || null, 'Card spending total');
-  sInp.querySelector('input').addEventListener('input', (e) => { S.draft.dirty = true; d.spend = { Other: n(e.target.value) }; renderCheckinResult(); });
+  sInp.querySelector('input').addEventListener('input', (e) => { S.draft.dirty = true; d.spend = { [mapCat('Other')]: n(e.target.value) }; renderCheckinResult(); });
   flow.append(fieldRow('Card spending, total', d.txCount ? `From ${d.txCount} imported transactions` : 'Or import CSVs for categories', sInp, sid));
   if (d.txCount) sInp.querySelector('input').readOnly = true;
   $('#c-notes').value = d.notes || '';
@@ -527,8 +555,44 @@ function renderCheckinResult() {
   r.append(line('Net worth, your share', $0(nw.nw)), line('Your own spending', $0(f.own)), line('Everyday spending', $0(f.everyday), f.everyday <= cfg().everydayTarget ? 'pos' : 'neg'), line('Cash flow', $0(f.net), f.net >= 0 ? 'pos' : 'neg'), line('Savings rate', f.rate == null ? '—' : pct(f.rate)));
 }
 
+// Files a transaction under a new category, and remembers it for that shop so the next import files it the same way.
+// Existing transactions aren't changed. Choosing a category also clears the transaction from the review list.
+async function setCategory(t, m, cat) {
+  t.cat = cat; t.lumpy = undefined; t.userCat = true; delete t.review; // userCat marks the copy to keep if it's ever found twice
+  const key = t.desc.replace(/\d{4,}.*$/, '').trim().slice(0, 24).trim();
+  await writeDoc('tx/' + m, { rows: S.tx[m], updatedAt: new Date().toISOString() }); await applySummary(m, false);
+  renderSpend();
+  const cfgNow = cfg(); const before = cfgNow.rules.find((r) => r.match === key);
+  if (key.length >= 3 && before?.cat !== t.cat) {
+    await saveConfig({ rules: [...cfgNow.rules.filter((r) => r.match !== key), { match: key, cat: t.cat }] });
+    const t2 = el('div', { class: 'toast', role: 'status' }, `New "${key}" transactions will be filed as ${pLabel(t.cat)} too. `, el('button', { class: 'btn small', type: 'button', text: 'Only this one', style: 'margin-left:8px', onclick: async () => { t2.remove(); await saveConfig({ rules: [...cfg().rules.filter((r) => r.match !== key), ...(before ? [before] : [])] }); toast('Just this transaction changed'); } }));
+    $$('.toast').forEach((x) => x.remove()); document.body.append(t2); setTimeout(() => t2.remove(), 8000);
+  }
+}
+const txWhen = (t, named) => t.date.slice(8) + ' ' + MONTHS[+t.date.slice(5, 7) - 1] + (t.acct ? ' · ' + ((named && acctFor(t.acct)?.name) || '…' + t.acct) : '');
+// New imports wait here until each is accepted with one tap or given another category. Older data has no flag, so it counts as reviewed.
+function renderReview() {
+  const box = $('#s-review'); if (!box) return;
+  if (!allTxDone) ensureAllTx().then(() => { if (S.view === 'spend') renderReview(); });
+  const items = Object.entries(S.tx).flatMap(([m, rows]) => rows.filter((t) => t.review).map((t) => [m, t])).sort((a, b) => b[1].date.localeCompare(a[1].date));
+  box.hidden = !items.length; if (!items.length) { box.replaceChildren(); return; }
+  const accept = async (pairs) => { const ms = new Set(); for (const [m, t] of pairs) { delete t.review; ms.add(m); } for (const m of ms) await writeDoc('tx/' + m, { rows: S.tx[m] }); renderSpend(); };
+  const shown = items.slice(0, 30);
+  box.replaceChildren(el('div', { class: 'row' }, el('h2', { text: 'To review' }), el('span', { class: 'cap muted', text: `${items.length} new` })),
+    el('p', { class: 'cap muted', text: 'Newly imported transactions. Tap Looks right if the category is right, or pick another one.' }),
+    el('div', { id: 's-revlist' }, shown.map(([m, t]) => {
+      const sel = el('select', { 'aria-label': 'Category for ' + t.desc }, pickCats(t.cat).map((k) => el('option', { value: k, selected: k === t.cat }, pLabel(k))));
+      sel.addEventListener('change', () => setCategory(t, m, sel.value));
+      return el('div', { class: 'tx has-ic' }, catIcon(t.cat), el('span', { class: 'desc', text: t.merchant || t.desc }), el('span', { class: 'num ' + (t.amt > 0 ? 'pos' : ''), text: $2(t.amt) }),
+        el('span', { class: 'meta' }, el('span', { text: txWhen(t, true) }), sel, el('button', { class: 'pill', type: 'button', text: 'Looks right', 'aria-label': `${t.merchant || t.desc} looks right`, onclick: () => accept([[m, t]]) })));
+    })),
+    el('p', { class: 'cap muted', hidden: items.length <= shown.length, text: `Showing the newest ${shown.length} of ${items.length}.` }),
+    el('div', { class: 'btns' }, el('button', { class: 'btn small', type: 'button', text: items.length === 1 ? 'Accept it' : `Accept all ${items.length}`, onclick: () => accept(items) })));
+}
+
 async function renderSpend() {
   const m = S.month; const rows = await loadTx(m); if (S.view !== 'spend' || S.month !== m) return;
+  renderReview();
   const md = S.months[m] || {}; const f = flows(m); const c = cfg();
   const sum = $('#s-summary'); sum.replaceChildren(el('div', { class: 'row' }, el('h2', { text: mLabel(m, true) }), el('span', { class: 'pill ' + (f.everyday <= c.everydayTarget ? 'ok' : 'bad'), text: f.cardSpend ? (f.everyday <= c.everydayTarget ? 'On target' : 'Over target') : 'No data' })));
   if (!f.cardSpend && !rows.length) sum.append(el('p', { class: 'muted cap', text: 'Import this month\'s CSVs to see where the money went.' }));
@@ -536,7 +600,7 @@ async function renderSpend() {
     el('div', { class: 'stat' }, el('span', { class: 'l', text: 'Card spending' }), el('span', { class: 'v', text: $0(f.cardSpend) })),
     el('div', { class: 'stat' }, el('span', { class: 'l', text: 'Your everyday' }), el('span', { class: 'v ' + (f.everyday <= c.everydayTarget ? 'pos' : 'neg'), text: $0(f.everyday) })),
     el('div', { class: 'stat' }, el('span', { class: 'l', text: 'One-offs' }), el('span', { class: 'v', text: $0(f.lumpy) })),
-    partnerOn() ? el('div', { class: 'stat' }, el('span', { class: 'l', text: pLabel("Partner's card") }), el('span', { class: 'v', text: $0(n(md.shonnyCard)) })) : null),
+    partnerOn() ? el('div', { class: 'stat' }, el('span', { class: 'l', text: pLabel("Partner's card") }), el('span', { class: 'v', text: $0(n(md.shonnyCard)) }), n(md.shonnyTagged) ? el('span', { class: 'd muted', text: `incl. ${$0(n(md.shonnyTagged))} marked ${pName()}'s` }) : null) : null),
     el('div', { class: 'alloc cats', role: 'img', 'aria-label': 'Spending by category' }, Object.entries(md.spend || {}).filter(([, v]) => n(v) > 0).sort((a, b) => b[1] - a[1]).map(([k, v]) => el('i', { style: `flex:${n(v)} 1 0;--c:${catColor(k)}`, title: `${k} ${$0(n(v))}` }))), // each category's share of the month, filling the bar
     el('p', { class: 'cap muted', text: f.shonnyOnCard ? `${$0(f.shonnyOnCard)} of the card spending is treated as ${pName()}'s share, from transfers beyond the mortgage share and ${pName()}'s card.` : 'Tap a category on any transaction to fix it. Changes update the month straight away.' }));
   const cats = $('#s-cats'); cats.replaceChildren();
@@ -550,8 +614,8 @@ async function renderSpend() {
   // recurring charges
   const subs = $('#s-subs'); subs.replaceChildren(el('h2', { text: 'Recurring charges' }));
   const allRows = Object.values(S.tx).flat();
-  const by = {}; for (const t of rows) if (SPEND_CATS.includes(t.cat) && t.amt < 0) { const k = (t.merchant || t.desc).replace(/\d{3,}.*$/, '').trim().slice(0, 32); (by[k] ||= []).push(t); }
-  const rec = Object.entries(by).filter(([k, ts]) => ['Subscriptions', 'Bills', 'Insurance'].includes(ts[0].cat) || allRows.filter((x) => (x.merchant || x.desc).startsWith(k) && x.date.slice(0, 7) !== m).length).map(([k, ts]) => [k, ts.reduce((s, t) => s - t.amt, 0), ts.length]).sort((a, b) => b[1] - a[1]).slice(0, 12);
+  const by = {}; for (const t of rows) if (isSpend(t.cat) && t.amt < 0) { const k = (t.merchant || t.desc).replace(/\d{3,}.*$/, '').trim().slice(0, 32); (by[k] ||= []).push(t); }
+  const rec = Object.entries(by).filter(([k, ts]) => ['Subscriptions', 'Bills', 'Insurance'].map(mapCat).includes(ts[0].cat) || allRows.filter((x) => (x.merchant || x.desc).startsWith(k) && x.date.slice(0, 7) !== m).length).map(([k, ts]) => [k, ts.reduce((s, t) => s - t.amt, 0), ts.length]).sort((a, b) => b[1] - a[1]).slice(0, 12);
   if (!rec.length) subs.append(el('p', { class: 'cap muted', text: 'Subscriptions and bills show here once a month is imported.' }));
   else { subs.append(el('div', { class: 'list' }, rec.map(([k, v, cnt]) => el('div', { class: 'row' }, el('span', { text: k + (cnt > 1 ? ` ×${cnt}` : '') }), el('span', { class: 'num', text: $2(v) }))))); subs.append(el('p', { class: 'cap muted', text: `About ${$0(rec.reduce((s, r) => s + r[1], 0))} a month. Worth a look for anything you no longer use.` })); }
 
@@ -559,7 +623,7 @@ async function renderSpend() {
   const filters = [['spend', 'Spending'], ['flow', 'Bills & transfers'], ...(partnerOn() ? [['shonny', pLabel("Partner's")]] : []), ['all', 'All']];
   const seg = $('#s-filter'); seg.replaceChildren(...filters.map(([k, l]) => el('button', { type: 'button', 'aria-pressed': !S.catFilter && S.filter === k ? 'true' : 'false', text: l, onclick: () => { S.filter = k; S.catFilter = null; renderSpend(); } })));
   const q = S.search.trim().toLowerCase();
-  let show = rows.filter((t) => S.catFilter ? t.cat === S.catFilter : (S.filter === 'all' || (S.filter === 'spend' ? SPEND_CATS.includes(t.cat) : S.filter === 'shonny' ? /Partner/.test(t.cat) || t.partner : FLOW_CATS.includes(t.cat) && !/Partner/.test(t.cat))));
+  let show = rows.filter((t) => S.catFilter ? t.cat === S.catFilter : (S.filter === 'all' || (S.filter === 'spend' ? isSpend(t.cat) : S.filter === 'shonny' ? /Partner/.test(t.cat) || t.partner : FLOW_CATS.includes(t.cat) && !/Partner/.test(t.cat))));
   if (q) show = show.filter((t) => (t.merchant + ' ' + t.desc).toLowerCase().includes(q));
   if (S.sort === 'amount') show = [...show].sort((a, b) => Math.abs(b.amt) - Math.abs(a.amt));
   $('#s-sort').textContent = S.sort === 'amount' ? 'Largest first' : 'Newest first';
@@ -576,28 +640,16 @@ async function renderSpend() {
   if (!rows.length) { list.append(el('div', { class: 'empty' }, el('p', { text: 'No transactions imported for this month. Import the CSVs in Check-in.' }), el('button', { class: 'btn small primary', type: 'button', text: 'Go to Check-in', onclick: () => go('checkin') }))); return; }
   if (!show.length) list.append(el('p', { class: 'cap muted', style: 'padding-block:12px', text: 'No transactions match.' }));
   for (const t of show.slice(0, 400)) {
-    const sel = el('select', { 'aria-label': 'Category for ' + t.desc }, [...ALL_CATS.filter((k) => partnerOn() || !/Partner/.test(k) || k === t.cat), ...(ALL_CATS.includes(t.cat) ? [] : [t.cat])].map((k) => el('option', { value: k, selected: k === t.cat }, pLabel(k))));
-    sel.addEventListener('change', async () => {
-      t.cat = sel.value; t.lumpy = undefined; t.userCat = true; // marks the copy to keep if it's ever found twice
-      const key = t.desc.replace(/\d{4,}.*$/, '').trim().slice(0, 24).trim();
-      await writeDoc('tx/' + m, { rows: S.tx[m], updatedAt: new Date().toISOString() }); await applySummary(m, false);
-      renderSpend();
-      // Remember the correction for this shop, so the next import files it the same way. Existing transactions aren't changed.
-      const cfgNow = cfg(); const before = cfgNow.rules.find((r) => r.match === key);
-      if (key.length >= 3 && before?.cat !== t.cat) {
-        await saveConfig({ rules: [...cfgNow.rules.filter((r) => r.match !== key), { match: key, cat: t.cat }] });
-        const t2 = el('div', { class: 'toast', role: 'status' }, `New "${key}" transactions will be filed as ${pLabel(t.cat)} too. `, el('button', { class: 'btn small', type: 'button', text: 'Only this one', style: 'margin-left:8px', onclick: async () => { t2.remove(); await saveConfig({ rules: [...cfg().rules.filter((r) => r.match !== key), ...(before ? [before] : [])] }); toast('Just this transaction changed'); } }));
-        $$('.toast').forEach((x) => x.remove()); document.body.append(t2); setTimeout(() => t2.remove(), 8000);
-      }
-    });
-    const lumpyBtn = SPEND_CATS.includes(t.cat) ? el('button', { class: 'pill' + (isLumpy(t) ? ' ok' : ''), type: 'button', text: isLumpy(t) ? 'One-off' : 'Mark one-off', onclick: async () => { t.lumpy = !isLumpy(t); await writeDoc('tx/' + m, { rows: S.tx[m], updatedAt: new Date().toISOString() }); await applySummary(m, false); renderSpend(); } }) : null;
-    const partnerBtn = partnerOn() && SPEND_CATS.includes(t.cat) && t.amt < 0 ? el('button', { class: 'pill' + (t.partner ? ' on' : ''), type: 'button', 'aria-pressed': t.partner ? 'true' : 'false', text: t.partner ? `${pName()}'s` : `Mark ${pName()}'s`, onclick: async () => { t.partner = !t.partner || undefined; await writeDoc('tx/' + m, { rows: S.tx[m] }); await applySummary(m, false); renderSpend(); } }) : null;
+    const sel = el('select', { 'aria-label': 'Category for ' + t.desc }, pickCats(t.cat).map((k) => el('option', { value: k, selected: k === t.cat }, pLabel(k))));
+    sel.addEventListener('change', () => setCategory(t, m, sel.value));
+    const lumpyBtn = isSpend(t.cat) ? el('button', { class: 'pill' + (isLumpy(t) ? ' ok' : ''), type: 'button', text: isLumpy(t) ? 'One-off' : 'Mark one-off', onclick: async () => { t.lumpy = !isLumpy(t); await writeDoc('tx/' + m, { rows: S.tx[m], updatedAt: new Date().toISOString() }); await applySummary(m, false); renderSpend(); } }) : null;
+    const partnerBtn = partnerOn() && isSpend(t.cat) && t.amt < 0 ? el('button', { class: 'pill' + (t.partner ? ' on' : ''), type: 'button', 'aria-pressed': t.partner ? 'true' : 'false', text: t.partner ? `${pName()}'s` : `Mark ${pName()}'s`, onclick: async () => { t.partner = !t.partner || undefined; await writeDoc('tx/' + m, { rows: S.tx[m] }); await applySummary(m, false); renderSpend(); } }) : null;
     const excluded = FLOW_CATS.includes(t.cat) && ['Transfer', "Partner's card"].includes(t.cat);
     list.append(el('div', { class: 'tx has-ic' + (excluded ? ' excluded' : '') },
       catIcon(t.cat),
       el('span', { class: 'desc', text: t.merchant || t.desc }),
       el('span', { class: 'num ' + (t.amt > 0 ? 'pos' : ''), text: $2(t.amt) }),
-      el('span', { class: 'meta' }, el('span', { text: t.date.slice(8) + ' ' + MONTHS[+t.date.slice(5, 7) - 1] + (t.acct ? ' · …' + t.acct : '') }), sel, lumpyBtn, partnerBtn)));
+      el('span', { class: 'meta' }, el('span', { text: txWhen(t) }), t.review ? el('span', { class: 'pill', text: 'New' }) : null, sel, lumpyBtn, partnerBtn)));
   }
 }
 
@@ -618,7 +670,7 @@ function renderBudget() {
   top.append(el('p', { class: 'cap muted', text: left - c.everydayTarget >= 0 ? `About ${$0(left - c.everydayTarget)} a month spare at target.` : `Target is ${$0(c.everydayTarget - left)} more than you have. Lower it, or cut fixed costs.` }));
   const box = $('#b-cats'); box.replaceChildren();
   const actual = md.spend || {};
-  for (const k of SPEND_CATS) {
+  for (const k of spendCats()) {
     const tgt = n(c.targets[k]); const a = n(actual[k]); if (!tgt && !a) continue;
     const ratio = tgt ? a / tgt : (a ? 1 : 0); const over = tgt && a > tgt;
     const open = () => { S.catFilter = k; go('spend'); setTimeout(() => $('#s-txcard')?.scrollIntoView({ block: 'start' }), 300); };
@@ -708,8 +760,8 @@ function scenSheet() {
   sheet('House option assumptions', body, () => saveConfig({ scenario: { sellCostPct: n($('#s-sc').value), breakCost: n($('#s-bc').value), leaseRentWeek: n($('#s-rw').value), leaseCostPct: n($('#s-lc').value) } }));
 }
 function targetsSheet() {
-  const c = cfg(); const body = el('div', { class: 'card' }, el('p', { class: 'cap muted', text: `Everyday target ${$0(c.everydayTarget)} a month. Change it in Settings.` }), ...SPEND_CATS.filter((k) => !LUMPY_CATS.has(k)).map((k) => fieldRow(k, null, moneyInput('t-' + k.replace(/\W/g, ''), c.targets[k], k), 't-' + k.replace(/\W/g, ''))));
-  sheet('Monthly targets', body, () => { const t = {}; for (const k of SPEND_CATS) { const i = $('#t-' + k.replace(/\W/g, '')); if (i && i.value) t[k] = n(i.value); } return saveConfig({ targets: t }); });
+  const c = cfg(); const body = el('div', { class: 'card' }, el('p', { class: 'cap muted', text: `Everyday target ${$0(c.everydayTarget)} a month. Change it in Settings.` }), ...(() => { const lc = lumpyCats(); return catList().filter((x) => !lc.has(x.name) && (!x.hidden || c.targets[x.name])).map((x) => x.name); })().map((k) => fieldRow(k, null, moneyInput('t-' + k.replace(/\W/g, ''), c.targets[k], k), 't-' + k.replace(/\W/g, ''))));
+  sheet('Monthly targets', body, () => { const t = {}; for (const k of spendCats()) { const i = $('#t-' + k.replace(/\W/g, '')); if (i && i.value) t[k] = n(i.value); } return saveConfig({ targets: t }); });
 }
 function sinkSheet() {
   const c = cfg(); const items = clone(c.sinking || []);
@@ -1000,7 +1052,7 @@ function settingsSheet() {
   const importing = el('div', { class: 'card' }, el('h2', { text: 'Importing' }),
     el('p', { class: 'cap muted', text: `Category rules file transactions by words in their description. You have ${(c.rules || []).length} of your own, on top of the built-in ones for common shops.` }),
     el('p', { class: 'cap muted', text: layouts.length ? `Remembered file layouts: ${layouts.map((x) => x.name).join(', ')}.` : 'No remembered file layouts yet. The app asks once when it sees a new layout.' }),
-    el('div', { class: 'btns' }, el('button', { class: 'btn small', type: 'button', text: 'Edit category rules', onclick: rulesSheet }),
+    el('div', { class: 'btns' }, el('button', { class: 'btn small', type: 'button', text: 'Edit spending categories', onclick: categoriesSheet }), el('button', { class: 'btn small', type: 'button', text: 'Edit category rules', onclick: rulesSheet }),
       layouts.length ? el('button', { class: 'btn small', type: 'button', text: 'Forget remembered layouts', onclick: async (e) => { await saveConfig({ importProfiles: [] }); e.target.remove(); toast('The app will ask again next time'); } }) : null));
   const prices = el('div', { class: 'card' }, el('h2', { text: 'Price sheet links' }),
     el('p', { class: 'cap muted', text: 'In Google Sheets, choose File > Share > Publish to web, pick a tab, choose Comma-separated values (.csv), then Publish and paste the link here. Do this for each of the ETFs, Stocks and Crypto tabs. Anyone with a published link can read that tab.' }),
@@ -1067,6 +1119,8 @@ function askSheet(title, body, getValue, label) {
 }
 const acctKeys = (a) => (a.match || '').split(/[,\s]+/).filter(Boolean);
 const acctFor = (key) => S.accounts.find((a) => acctKeys(a).includes(key));
+// Which account a transaction belongs to, whichever of the account's keys its file used (account number or a card number).
+function acctResolver() { const m = new Map(); for (const a of S.accounts) for (const k of acctKeys(a)) if (!m.has(k)) m.set(k, a.id); return (t) => m.get(t.acct || '') || t.acct || ''; }
 const colName = (i) => String.fromCharCode(65 + (i % 26));
 // Asks which column is which for a CSV layout the app hasn't seen, and remembers the answer for next time.
 function askMapping(fileName, rows, guess) {
@@ -1165,10 +1219,11 @@ async function readFiles(files) {
       if (!g.rows.length) continue;
       if (!g.acct) {
         // A card number already linked to an account, or a clear overlap with saved transactions, says which account it is. Otherwise ask.
-        let key = (g.cards || []).map((k) => acctFor(k) && k).find(Boolean) || '';
+        let key = (g.cards || []).map((k) => acctFor(k) && k).find(Boolean) || ''; g.how = 'card';
         if (key) { const a = acctFor(key); key = acctKeys(a)[0]; }
-        if (!key) { await ensureAllTx(); key = guessAccount(Object.values(S.tx).flat(), g.rows); }
-        if (!key) { key = await askAccount(f.name); if (key === null) continue; }
+        if (!key) { await ensureAllTx(); key = guessAccount(Object.values(S.tx).flat(), g.rows); g.how = 'overlap'; }
+        if (!key) { key = await askAccount(f.name); g.how = 'asked'; if (key === null) continue; }
+        g.file = f.name; g.guessed = true;
         await rememberCards(key, g.cards);
         g.acct = key; g.rows.forEach((t) => { t.acct = key; });
       }
@@ -1186,9 +1241,9 @@ async function importFiles(files) {
   // Only add what's new. Transactions already here keep their category; nothing already imported is changed.
   const touched = [...new Set(all.map((t) => t.date.slice(0, 7)))];
   let existing = []; for (const m of new Set(touched.flatMap((m) => [mAdd(m, -1), m, mAdd(m, 1)]))) existing = existing.concat(await loadTx(m));
-  const fresh = []; for (const g of groups) fresh.push(...newOnly(existing.concat(fresh), g.rows));
-  const byMonth = {};
-  for (const t of fresh) { const m = t.date.slice(0, 7); (byMonth[m] ||= []).push({ ...t, cat: classify(t, c).cat }); }
+  const fresh = []; for (const g of groups) fresh.push(...newOnly(existing.concat(fresh), g.rows, 3, acctResolver()));
+  const byMonth = {}; const stored = new Map();
+  for (const t of fresh) { const m = t.date.slice(0, 7); const row = { ...t, cat: classify(t, c).cat, review: true }; stored.set(t, row); (byMonth[m] ||= []).push(row); }
   const added = fresh.length;
   for (const [m, rows] of Object.entries(byMonth)) {
     const merged = (await loadTx(m)).concat(rows).sort((a, b) => b.date.localeCompare(a.date));
@@ -1198,8 +1253,46 @@ async function importFiles(files) {
   for (const m of touched) await applySummary(m, true);
   const months = touched.sort();
   S.month = months[months.length - 1]; fillMonthPick();
-  toast(`Imported ${added} new transaction${added === 1 ? '' : 's'} for ${months.map((m) => mLabel(m)).join(', ')}${got.qif ? '. Next time, choose CSV if your bank offers it: it gives balances and better categories.' : ''}`);
+  const msg = `Imported ${added} new transaction${added === 1 ? '' : 's'} for ${months.map((m) => mLabel(m)).join(', ')}${added ? '. Check them in Spending' : ''}${got.qif ? '. Next time, choose CSV if your bank offers it: it gives balances and better categories.' : ''}`;
   render(true);
+  // A QIF file doesn't say which account it's from, so say which one the app chose, and let it be put right.
+  const filed = groups.filter((g) => g.guessed).map((g) => ({ g, rows: g.rows.map((t) => stored.get(t)).filter(Boolean), a: acctFor(g.acct) })).filter((x) => x.a && x.rows.length);
+  if (!filed.length) { toast(msg); return; }
+  const names = [...new Set(filed.map((x) => x.a.name))].join(' and ');
+  const t2 = el('div', { class: 'toast', role: 'status' }, `${msg} QIF filed under ${names}. `, el('button', { class: 'btn small', type: 'button', text: 'Wrong account?', style: 'margin-left:8px', onclick: () => { t2.remove(); wrongAccountSheet(filed); } }));
+  $$('.toast').forEach((x) => x.remove()); document.body.append(t2); setTimeout(() => t2.remove(), 15000);
+}
+// Moves transactions imported from a QIF to the account they really came from. The card numbers in the file are
+// linked to that account instead, so the next file goes there too. Any that the right account already has are dropped.
+async function moveImported(rows, from, to, cards) {
+  const toKey = acctKeys(to)[0] || to.id; if (!acctKeys(to).length) to.match = toKey;
+  const unlink = (cards || []).filter((k) => acctFor(k) === from);
+  if (unlink.length) { from.match = acctKeys(from).filter((k) => !unlink.includes(k)).join(','); await writeDoc('accounts/' + from.id, { ...from }); }
+  const add = (cards || []).filter((k) => !acctFor(k)); to.match = [...acctKeys(to), ...add].join(','); await writeDoc('accounts/' + to.id, { ...to });
+  await loadAllTx();
+  const gone = new Set(rows); const months = new Set(rows.map((t) => t.date.slice(0, 7)));
+  for (const m of months) S.tx[m] = (S.tx[m] || []).filter((t) => !gone.has(t));
+  const moved = rows.map((t) => ({ ...t, acct: toKey }));
+  const keep = newOnly(Object.values(S.tx).flat(), moved, 3, acctResolver());
+  for (const t of keep) S.tx[t.date.slice(0, 7)].push(t);
+  for (const m of months) { S.tx[m].sort((a, b) => b.date.localeCompare(a.date)); await writeDoc('tx/' + m, { rows: S.tx[m] }); await applySummary(m, false); }
+  return { moved: keep.length, dropped: moved.length - keep.length };
+}
+function wrongAccountSheet(filed) {
+  const how = { card: 'by its card number', overlap: 'from transactions already saved', asked: 'as you chose' };
+  const body = el('div', { class: 'card' },
+    el('p', { class: 'cap muted', text: 'Choose the account each file is really from. Its transactions move there, and its card numbers are linked to that account so the next file goes there too.' }),
+    ...filed.map((x, i) => fieldRow(x.g.file || 'QIF file', `${x.rows.length} transaction${x.rows.length === 1 ? '' : 's'}, filed under ${x.a.name} ${how[x.g.how] || ''}`.trim(),
+      el('select', { id: 'wa-' + i, class: 'month-pick' }, S.accounts.filter((a) => LIQUID.has(a.type) || a === x.a).map((a) => el('option', { value: a.id, selected: a === x.a }, a.name))), 'wa-' + i)));
+  sheet('Wrong account?', body, async () => {
+    let moved = 0, dropped = 0;
+    for (const [i, x] of filed.entries()) {
+      const to = S.accounts.find((a) => a.id === $('#wa-' + i).value); if (!to || to === x.a) continue;
+      const r = await moveImported(x.rows, x.a, to, x.g.cards); moved += r.moved; dropped += r.dropped;
+    }
+    render(true);
+    toast(moved || dropped ? `Moved ${moved} transaction${moved === 1 ? '' : 's'}${dropped ? `. ${dropped} ${dropped === 1 ? 'was' : 'were'} already there, so ${dropped === 1 ? 'it was' : 'they were'} removed` : ''}.` : 'Nothing changed');
+  }, 'Move');
 }
 
 // ---------- duplicates ----------
@@ -1210,8 +1303,8 @@ async function loadAllTx() { try { const all = await store.getAll('tx'); for (co
 async function replaceFiles(files) {
   const got = await readFiles(files); if (!got) return;
   await loadAllTx();
-  const plan = planReplace(Object.values(S.tx).flat(), got.groups, keepScore);
-  const c = cfg(); const rows = plan.rows.map((t) => (t.cat ? t : { ...t, cat: classify(t, c).cat }));
+  const plan = planReplace(Object.values(S.tx).flat(), got.groups, keepScore, 3, acctResolver());
+  const c = cfg(); const rows = plan.rows.map((t) => (t.cat ? t : { ...t, cat: classify(t, c).cat, review: true }));
   const fmt = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
   const spans = got.groups.map((g) => { const ds = g.rows.map((t) => t.date).sort(); const a = acctFor(g.acct); return `${a ? a.name : '…' + g.acct}: ${fmt(ds[0])} to ${fmt(ds[ds.length - 1])}`; });
   const gone = plan.replace.length - plan.carried;
@@ -1235,7 +1328,7 @@ async function replaceFiles(files) {
 }
 async function duplicatesSheet() {
   await loadAllTx();
-  const groups = findDuplicates(Object.values(S.tx).flat(), keepScore);
+  const groups = findDuplicates(Object.values(S.tx).flat(), keepScore, 3, acctResolver());
   if (!groups.length) { toast('No duplicates found'); return; }
   const when = (t) => `${+t.date.slice(8)} ${MONTHS[+t.date.slice(5, 7) - 1]}`;
   const body = el('div', { class: 'card' },
@@ -1262,12 +1355,91 @@ function rulesSheet() {
   const items = clone(cfg().rules || []); const box = el('div', {});
   const draw = () => box.replaceChildren(...items.map((r, i) => el('div', { style: 'display:flex;gap:8px;padding-block:6px;align-items:center' },
     el('input', { class: 'plain', style: 'flex:1;min-width:0', value: r.match || '', placeholder: 'Words in the description', 'aria-label': 'Words to look for', autocapitalize: 'characters', oninput: (e) => { r.match = e.target.value; } }),
-    el('select', { class: 'month-pick', style: 'flex:0 0 8.5rem;min-width:0', 'aria-label': 'Category', onchange: (e) => { r.cat = e.target.value; } }, ALL_CATS.filter((k) => partnerOn() || !/Partner/.test(k) || k === r.cat).map((k) => el('option', { value: k, selected: k === r.cat }, pLabel(k)))),
+    el('select', { class: 'month-pick', style: 'flex:0 0 8.5rem;min-width:0', 'aria-label': 'Category', onchange: (e) => { r.cat = e.target.value; } }, pickCats(r.cat).map((k) => el('option', { value: k, selected: k === r.cat }, pLabel(k)))),
     el('button', { class: 'btn small', type: 'button', text: '×', 'aria-label': 'Remove rule', onclick: () => { items.splice(i, 1); draw(); } }))),
-    el('button', { class: 'btn small', type: 'button', text: 'Add a rule', onclick: () => { items.push({ match: '', cat: 'Other' }); draw(); } }));
+    el('button', { class: 'btn small', type: 'button', text: 'Add a rule', onclick: () => { items.push({ match: '', cat: mapCat('Other') }); draw(); } }));
   draw();
   sheet('Category rules', el('div', { class: 'card' }, el('p', { class: 'cap muted', text: 'When a description contains these words, the transaction is filed under the category you choose. Your rules come before the built-in ones, and apply to new imports.' }), box),
     () => saveConfig({ rules: items.map((r) => ({ match: String(r.match || '').trim(), cat: r.cat })).filter((r) => r.match) }));
+}
+// ---------- editing spending categories ----------
+// Moves everything filed under one category to another: transactions in every month, month totals typed in by hand,
+// category rules and the budget target. Used to rename (into a new name) and to remove (into an existing category).
+// list is the category list afterwards; it's set first so the month totals are worked out against it.
+async function moveCategory(from, to, list) {
+  S.config = { ...(S.config || {}), spendCats: list };
+  await loadAllTx();
+  for (const [m, rows] of Object.entries(S.tx)) {
+    let changed = false; for (const t of rows) if (t.cat === from) { t.cat = to; changed = true; }
+    if (changed) { await writeDoc('tx/' + m, { rows }); await applySummary(m, false); }
+  }
+  for (const [m, d] of Object.entries(S.months)) {
+    if (!d?.spend || !(from in d.spend)) continue;
+    const spend = { ...d.spend }; spend[to] = r2(n(spend[to]) + n(spend[from])); delete spend[from];
+    S.months[m] = { ...d, spend }; await writeDoc('months/' + m, S.months[m]);
+  }
+  const c = cfg(); const targets = { ...c.targets };
+  if (has(targets[from])) { targets[to] = r2(n(targets[to]) + n(targets[from])); delete targets[from]; }
+  const catMap = {}; for (const [k, v] of Object.entries(c.catMap || {})) catMap[k] = v === from ? to : v;
+  catMap[from] = to; delete catMap[to];
+  if (S.catFilter === from) S.catFilter = to;
+  return { spendCats: list, targets, catMap, rules: (c.rules || []).map((r) => (r.cat === from ? { ...r, cat: to } : r)) };
+}
+const catNameTaken = (name, except) => allCats().some((k) => k !== except && k.toLowerCase() === name.toLowerCase());
+function categoriesSheet() {
+  const box = el('div', { class: 'list' });
+  for (const x of catList()) {
+    box.append(el('div', { class: 'catrow tap', role: 'button', tabindex: '0', 'aria-label': `Edit ${x.name}`, onclick: () => { close(); categorySheet(x); }, onkeydown: (e) => { if (e.key === 'Enter') { close(); categorySheet(x); } } },
+      el('div', { class: 'cat-line' }, catIcon(x.name), el('div', { class: 'cat-body' }, el('div', { class: 'row' }, el('span', { text: x.name }), el('span', { class: 'cap muted', text: x.hidden ? 'Hidden' : 'Edit' }))))));
+  }
+  const close = sheet('Spending categories', el('div', { class: 'card' },
+    el('p', { class: 'cap muted', text: 'Tap a category to rename it, change its icon or colour, hide it or remove it. Income, transfers, mortgage and the partner categories stay as they are, because the totals depend on them.' }),
+    box, el('div', { class: 'btns' }, el('button', { class: 'btn small', type: 'button', text: 'Add a category', onclick: () => { close(); categorySheet(null); } }))));
+}
+function categorySheet(x) {
+  const isNew = !x; const cur = x ? { ...x } : { name: '', icon: 'dots', color: 'violet' };
+  const name = el('input', { id: 'cat-name', class: 'plain', value: cur.name, maxlength: '32', autocomplete: 'off', 'aria-label': 'Category name' });
+  const preview = el('span', {});
+  const drawPreview = () => { const ns = 'http://www.w3.org/2000/svg'; const svg = document.createElementNS(ns, 'svg'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true'); const pth = document.createElementNS(ns, 'path'); pth.setAttribute('d', ICONS[cur.icon]); svg.append(pth); preview.replaceChildren(el('span', { class: 'ci', style: `--c:var(--c-${cur.color})` }, svg)); };
+  const iconBtn = (ic) => { const ns = 'http://www.w3.org/2000/svg'; const svg = document.createElementNS(ns, 'svg'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true'); const pth = document.createElementNS(ns, 'path'); pth.setAttribute('d', ICONS[ic]); svg.append(pth);
+    return el('button', { class: 'pickbtn', type: 'button', 'data-icon': ic, 'aria-label': ic, 'aria-pressed': ic === cur.icon ? 'true' : 'false', onclick: (e) => { cur.icon = ic; icons.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b === e.currentTarget ? 'true' : 'false')); drawPreview(); } }, svg); };
+  const icons = el('div', { class: 'picker', role: 'group', 'aria-label': 'Icon' }, Object.keys(ICONS).map(iconBtn));
+  const colours = el('div', { class: 'picker', role: 'group', 'aria-label': 'Colour' }, COLOURS.map((col) => el('button', { class: 'pickbtn swatch', type: 'button', 'data-colour': col, 'aria-label': col, 'aria-pressed': col === cur.color ? 'true' : 'false', style: `--c:var(--c-${col})`, onclick: (e) => { cur.color = col; colours.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b === e.currentTarget ? 'true' : 'false')); drawPreview(); } })));
+  const hidden = el('input', { type: 'checkbox', id: 'cat-hidden', checked: !!cur.hidden });
+  drawPreview();
+  const body = el('div', { class: 'card' },
+    el('div', { style: 'display:flex;gap:10px;align-items:center' }, preview, el('div', { style: 'flex:1;min-width:0' }, name)),
+    el('p', { class: 'cap muted', text: 'Icon' }), icons,
+    el('p', { class: 'cap muted', text: 'Colour' }), colours,
+    isNew ? null : el('label', { style: 'display:flex;gap:10px;align-items:flex-start;padding-top:12px' }, hidden, el('span', {}, 'Hide from category lists', el('small', { class: 'cap muted', style: 'display:block', text: 'Its transactions still count. Use this for a category you no longer need but want to keep the history of.' }))));
+  if (!isNew) {
+    const others = spendCats().filter((k) => k !== x.name);
+    const moveTo = el('select', { id: 'cat-moveto', class: 'month-pick', 'aria-label': 'Move to' }, others.map((k) => el('option', { value: k, selected: k === mapCat('Other') }, k)));
+    const removeBox = el('div', { hidden: true },
+      fieldRow('Move its transactions to', 'Its rules and budget target move too', moveTo, 'cat-moveto'),
+      el('div', { class: 'btns' }, el('button', { class: 'btn small danger', type: 'button', text: `Remove ${x.name}`, onclick: async () => {
+        const to = moveTo.value; if (!to) return;
+        await saveConfig(await moveCategory(x.name, to, catList().filter((k) => k.name !== x.name)));
+        close(); toast(`Removed ${x.name}. Its transactions are now under ${to}.`); categoriesSheet();
+      } })));
+    if (others.length) body.append(el('div', { class: 'btns' }, el('button', { class: 'btn small', type: 'button', text: 'Remove this category', onclick: (e) => { e.currentTarget.remove(); removeBox.hidden = false; } })), removeBox);
+  }
+  const close = sheet(isNew ? 'New category' : `Edit ${x.name}`, body, async () => {
+    const nm = name.value.trim().replace(/\s+/g, ' ');
+    if (!nm) { toast('Give the category a name'); return false; }
+    if (catNameTaken(nm, x?.name)) { toast(`There's already a category called ${nm}`); return false; }
+    const entry = { name: nm, icon: cur.icon, color: cur.color, ...(hidden.checked && !isNew ? { hidden: true } : {}) };
+    if (isNew) {
+      const catMap = { ...(cfg().catMap || {}) }; delete catMap[nm]; // a new category with an old name takes that name back
+      await saveConfig({ spendCats: [...catList(), entry], catMap });
+      toast(`Added ${nm}`);
+    } else {
+      const list = catList().map((k) => (k.name === x.name ? entry : k));
+      await saveConfig(nm !== x.name ? await moveCategory(x.name, nm, list) : { spendCats: list });
+      toast(nm !== x.name ? `Renamed ${x.name} to ${nm}` : 'Saved');
+    }
+    setTimeout(categoriesSheet, 280);
+  });
 }
 const SETUP_ACCOUNTS = [['Everyday account', 'cash', true], ['Savings account', 'cash', true], ['Credit card', 'card', true], ['Super', 'super', true], ['Shares, ETFs and crypto', 'invest', false], ['Home', 'property', false], ['Home loan', 'mortgage', false], ['Offset account', 'offset', false], ['Car', 'vehicle', false], ['Car loan', 'loan', false]];
 function setupSheet() {
@@ -1368,9 +1540,9 @@ function ledgerTotals(house, fy) {
   for (const m of sortedMonths()) {
     if (fy !== 'all' && fyOf(m + '-01') !== fy) continue;
     const d = S.months[m] || {}; const paid = n(d.mortgagePaid);
-    t.mortgage += paid; t.tracked += paid; t.partner += n(d.shonnyMortgage); t.rates += n(d.spend?.['Council rates']); t.repairs += n(d.spend?.['Home repairs']);
+    t.mortgage += paid; t.tracked += paid; t.partner += n(d.shonnyMortgage); t.rates += n(d.spend?.[mapCat('Council rates')]); t.repairs += n(d.spend?.[mapCat('Home repairs')]);
     if (paid > 0) t.interest += Math.min(paid, loanInputs(morts, m, true).reduce((s, l) => s + (Math.max(0, l.balance - l.offset) * l.rate) / 1200, 0));
-    if (insurers.length) for (const x of S.tx[m] || []) if (x.cat === 'Insurance' && x.amt < 0 && insurers.some((p) => ((x.merchant || '') + ' ' + (x.desc || '')).toUpperCase().includes(p))) t.insurance -= x.amt;
+    if (insurers.length) for (const x of S.tx[m] || []) if (x.cat === mapCat('Insurance') && x.amt < 0 && insurers.some((p) => ((x.merchant || '') + ' ' + (x.desc || '')).toUpperCase().includes(p))) t.insurance -= x.amt;
   }
   for (const e of lg.manual || []) if ((fy === 'all' || +e.fy === fy) && e.type in t) t[e.type] += n(e.amount);
   t.total = t.mortgage + t.rates + t.insurance + t.repairs; t.net = t.total - t.partner;
@@ -1392,7 +1564,7 @@ function renderLedger() {
       row(LEDGER_TYPES.mortgage, t.tracked > 0 ? `About ${$0(t.interest)} interest and ${$0(t.tracked - t.interest)} off the loan` : null, $0(t.mortgage)),
       row(LEDGER_TYPES.rates, null, $0(t.rates)),
       row(LEDGER_TYPES.insurance, hasInsurer ? null : 'Add your insurer under Edit to count it', $0(t.insurance)),
-      row(LEDGER_TYPES.repairs, 'Spending filed as Home repairs', $0(t.repairs))),
+      row(LEDGER_TYPES.repairs, `Spending filed as ${mapCat('Home repairs')}`, $0(t.repairs))),
     el('div', { class: 'row', style: 'padding-top:8px;border-top:1px solid var(--line)' }, el('strong', { text: 'Total paid' }), el('strong', { class: 'num', text: $0(t.total) })),
     !partnerOn() ? null : el('div', { class: 'row' }, el('span', {}, `${pName()}'s contributions`, el('small', { class: 'cap muted', style: 'display:block', text: 'Mortgage-share transfers to you' })), el('span', { class: 'num', text: '−' + $0(t.partner).replace('−', '') })),
     el('div', { class: 'row' }, el('strong', { text: 'Your net contribution' }), el('strong', { class: 'num', text: $0(t.net) })),
@@ -1637,6 +1809,12 @@ async function loadState() {
   S.draft = null; S.catFilter = null; allTxP = null; allTxDone = false;
   if (S.config?.rules?.some((r) => fixCat(r.cat) !== r.cat)) { S.config.rules = S.config.rules.map((r) => ({ ...r, cat: fixCat(r.cat) })); await store.put('config', 'app', clone(S.config)); }
   S.ready = { config: true, accounts: true, months: true };
+  // Months saved before marked purchases moved to the partner's card total are worked out again, once.
+  ensureAllTx().then(async () => {
+    let any = false;
+    for (const [m, rows] of Object.entries(S.tx)) if (S.months[m] && S.months[m].sumV !== 2 && rows.some((t) => t.partner)) { await applySummary(m, false); any = true; }
+    if (any) render();
+  });
 }
 async function reloadAll() { await loadState(); S.month = pickStartMonth(); fillMonthPick(); render(true); }
 (async function start() {

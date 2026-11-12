@@ -6,7 +6,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 
 - **Live prices are unverified against a real sheet.** The cloud sandbox blocks docs.google.com, so cross-origin fetches of the published CSV were never tested. The user hasn't yet pasted real links (they once saved three empty boxes). If Refresh prices says "Couldn't reach Google Sheets", try Google's other CSV link format (`/gviz/tq?tqx=out:csv&sheet=<tab>`, which needs link sharing on), or an Apps Script web app returning JSON. Don't add a proxy.
 - **Untested on a real phone:** Back up now through the share sheet, the back-button order, status bar icon colour per theme, and vibration. The user has installed the APK and reported layout issues only so far.
-- **Roadmap items 3, 4 and 5 are untested with the user's real data.** They need: each mortgage split's linked offset and rate history entered (Wealth > tap the loan in Accounts and loans), the building insurer named in the ledger's Edit, and dividends entered or imported. Ask for the headers of the user's dividend sheet tab if the CSV import doesn't read it.
+- **Roadmap items 17, 18 and 19 are untested with the user's real data.** They need: each mortgage split's linked offset and rate history entered (Wealth > tap the loan in Accounts and loans), the building insurer named in the ledger's Edit, and dividends entered or imported. Ask for the headers of the user's dividend sheet tab if the CSV import doesn't read it.
 - **Bank import is only tested with NAB CSVs and made-up OFX, QIF and CSV files.** Add built-in profiles for other banks only from real, scrubbed sample exports, and test OFX/QIF against a real bank download when one is available.
 - **The first user's own merchant words are still in the built-in rules** (BAKER, BROTHERS, JORGE, ANMF, flagged in `merchants.js`). Review them before selling.
 - **Version numbering:** `1.0.<run number>` skips numbers because branch builds use them too. A version set in `package.json` (minor for features, patch for fixes), with `versionCode` still taken from the run number, was suggested but not decided.
@@ -17,7 +17,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 ### Storage and data
 - **IndexedDB through `www/js/storage.js` only**, with the same shapes the original artifact used (config, accounts, months, tx, holdings), so backups from the artifact restore unchanged. `meta` (lastBackup, since) is never exported.
 - **Stored category keys stay "Partner…"**, with the display name substituted at render (`pLabel`). Older data that names the partner ("Shonny's card") is mapped to the keys when a month loads (`fixCat`), because real backups came from a version that used the partner's name.
-- **Tagging a purchase as the partner's** sets `t.partner`. It feeds the partner's share on your card as `max(transfer-based estimate, tagged total)`, so a tagged purchase they already paid back isn't counted twice. Tagged purchases keep their category, so category bars still show total card spend.
+- **Marking a purchase as the partner's** sets `t.partner`. Since 12 Nov 2026 (the user asked: marking didn't flow through to anything) it leaves `spend` and lumpy and is added to `shonnyCard` (also `shonnyTagged`, shown under the stat). The transfer-based share is `transfers − mortgage half − shonnyCard`, so transfers cover marked purchases first and nothing is counted twice. Months saved earlier are recomputed once on load (`sumV: 2`). It keeps its category, but no longer counts in that category's total.
 - **Expected pay** (`config.expectedPay {amount, per}`) is used only by Budget. Check-in, Home and cash flow keep actual pay, because they report what happened.
 - **Backups**: plain JSON, or AES-GCM 256 with a PBKDF2-SHA-256 key (600,000 iterations) when a passphrase is given. Restore accepts accounts and holdings as arrays or maps, and tx as `rows[]` or `{rows}`.
 
@@ -34,7 +34,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 - **Body top padding equals the status-bar inset**: without it the sticky header was pushed down over the first card in the app.
 - **APK links must be opened in Chrome itself**: the Claude app's in-app browser stalls on APK downloads.
 
-### Bank import (roadmap 6)
+### Bank import (roadmap 1)
 - **`www/js/importer.js` (pure, unit tested) reads every file into one shape** `{date, amt, desc, merchant, acct, bal, type, nabCat}`. OFX/QFX and QIF are parsed directly; CSVs go through `resolveMapping`: a built-in profile (matched by required header names, mapped by name so column order doesn't matter), then a saved user profile (matched by `signature`: the lower-cased header row, or column count if there's no header), then `guessMapping` for the user to confirm.
 - **Why profiles are optional:** if a bank changes its CSV, the guided mapping still works and the user re-confirms once. The app never depends on a profile being up to date.
 - **OFX closing balance** is put on the newest transaction's `bal`, so the existing month-end balance logic (`balancesFromRows`) picks it up unchanged.
@@ -46,14 +46,22 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 - **Balance dates:** `months[m].balDates {accountId: date}` records the newest transaction date behind an imported balance. Keying a balance in Check-in removes it, so it shows as the month's last day.
 - **The file picker has no type filter** because Android greys out OFX and QIF files it has no type for.
 
+### Spending categories and review (roadmap 3 and 7)
+- **`config.spendCats` [{name, icon, color, hidden}]** replaces the fixed list when set; without it the built-in `SPEND_CATS` apply, so older backups are unchanged. Flow categories stay fixed in code.
+- **`config.catMap` {old or built-in name: current name}**: `classify()` passes its result through `mapCat`, so built-in merchant rules, the NAB map and code that names categories (Council rates, Home repairs, Insurance in the ledger; lumpy defaults) follow renames and removals. Adding a category with an old name deletes that map entry.
+- **Rename and remove both go through `moveCategory`**: every month's transactions, hand-keyed month totals, rules and targets move; the new list is set before totals are worked out again. Hidden categories still count; they only leave the pickers.
+- **QIF account choices can be undone.** A card number linked to the wrong account sent every later QIF there silently, and the misfiled rows then made `guessAccount` agree (the user's …2600 purchases ended up on their …4049 account). The import message now names the account, and Wrong account? (`moveImported`) moves that import's rows, drops ones the right account already has (`newOnly`), and moves the card numbers. Rows from earlier imports aren't moved: clean those with Replace with a fresh import on the wrong account.
+- **Review flag is `t.review: true`** on imported rows (and carried by Replace with a fresh import); no flag means reviewed, so existing data needed no migration.
+
 ### Re-importing and corrections
+- **Matching compares accounts, not keys** (12 Nov 2026). One account can have several match keys (account number, card numbers), and different file types label the same purchase with different ones, which caused duplicates for the user (…2600 from CSV, …4049 from QIF). `newOnly`, `findDuplicates` and `planReplace` take an `acctOf` function; the app passes `acctResolver()`. `sameShop` compares the first 6 letters after dropping payment prefixes like `SQ`, and two different 6+ digit reference numbers mean different transactions. Check for duplicates now also groups pending/posted pairs, not just identical descriptions.
 - **`newOnly()` in `importer.js` decides what's new.** First exact matches on date, amount, account and normalised description (balance ignored, counted so identical same-day purchases both import). Then pending→posted matches: same account and amount, same first 6 description characters, within 3 days, and inside the new file's date range widened by 3 days. Existing transactions are never changed by an import, so their categories stay.
 - **Duplicates from older imports** (the old match included the running balance, which differed between NAB downloads) are cleaned up by Spending > Check for duplicates: `findDuplicates()` groups same account, amount and normalised description within 3 days; the user confirms; the kept copy is the one with `userCat` (set whenever a category is changed), tags, or a non-default category.
 - **Replace with a fresh import** (`planReplace()`): for each account in the files, every saved transaction between the file's first and last date is replaced by the file's rows. Category, `userCat`, `lumpy` and `partner` are copied from the matching saved copy first (exact match; if saved twice, the highest-scoring copy), then pending→posted matches, including saved copies up to 3 days outside the dates. Recommended over Check for duplicates for cleaning up, because the result matches the bank exactly; Check for duplicates stays for months the bank no longer offers.
 - **Known trade-off:** two identical purchases (same shop, same amount) within 3 days of each other, straddling the start of a download, count as one.
 - **A category change saves a rule for that shop straight away** (key: description up to the first run of 4+ digits, 24 characters), with "Only this one" to undo it. The old 6-second "Always file?" prompt meant corrections were easily lost.
 
-### Loans, ledger and tax (roadmap 3–5)
+### Loans, ledger and tax (roadmap 17–19)
 - **Pure maths in `www/js/loans.js` and `www/js/tax.js`, unit tested.** `simulate()` runs loans month by month; extras go to the highest-rate loan first; a shared offset is counted once. Freed-up repayments are not rolled into other loans, in either the baseline or the scenario.
 - **Loan fields on the account:** `rateType`, `fixedUntil`, `offsetId`, `rateHistory [{date, rate}]` (first entry is the starting rate). `a.rate` stays the current rate; history is only for past months.
 - **Rate-change cost** uses actual month-end balances net of the linked offset, against the first rate in the history.
@@ -79,6 +87,8 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 
 ## Log
 
+- **12 Nov 2026**: Built roadmap 3 (review queue) and 7 (editable spending categories). Marking a purchase as the partner's now moves it to their card total. Fixed duplicates from one card imported under two keys. QIF imports name the account they went to, with Wrong account? to move them; the user's duplicates were QIFs misfiled to another account. Done roadmap items are struck through.
+- **12 Nov 2026**: Renumbered the roadmap 1–24 and grouped it by function, at the user's request. Log entries before this date use the old numbers; the Roadmap gives each item's old number.
 - **11 Nov 2026**: Home Accounts card with account numbers and balance dates (roadmap 7). CSV recommended over QIF in Check-in. QIF imports recognise their account by card numbers or saved transactions (roadmap 10); first tried one account per card, which was wrong: the user's two cards share one account. Added the user's ideas list to the roadmap, with safe-to-spend, review queue and app lock first.
 - **10 Nov 2026**: Spending's category bar now fills its width with each category's share of spend (1.0.26). Full-width toasts (1.0.24) came from misreading "the whole bar"; reverted to fit-content bubbles at the user's request (1.0.28), keeping the outline toast button.
 - **9 Nov 2026**: Built the PWA from the artifact, deployed to Pages. Partner tagging, expected pay, the new look, motion and swipe, the first Android releases (1.0.4, 1.0.6, 1.0.8).
