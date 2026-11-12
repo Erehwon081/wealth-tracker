@@ -78,12 +78,14 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   await p.locator('#s-filter button', { hasText: 'Spending' }).click(); await p.waitForTimeout(300);
   const firstTx = p.locator('#s-tx .tx').first();
   const amt = Math.abs(parseFloat((await firstTx.locator('.num').textContent()).replace(/[^0-9.]/g, '')));
+  const months0 = await p.evaluate(async () => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); }); return new Promise((res) => { const q = db.transaction('months').objectStore('months').getAll(); q.onsuccess = () => res(q.result); }); });
   await firstTx.locator('button', { hasText: "Mark Shonny's" }).click(); await p.waitForTimeout(400);
   ok(await p.locator('#s-tx .tx').first().locator('button', { hasText: /^Shonny's$/ }).count() === 1, 'tag button toggles on');
-  await p.click('.tab[data-tab=checkin]'); await p.waitForTimeout(300);
-  const onCard = parseFloat(await p.inputValue('#f-shonnyOnCard'));
-  ok(onCard >= amt - 0.01, `tagged amount feeds the partner's share on your card (${onCard} >= ${amt})`);
-  await p.click('.tab[data-tab=spend]'); await p.waitForTimeout(300);
+  const months1 = await p.evaluate(async () => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); }); return new Promise((res) => { const q = db.transaction('months').objectStore('months').getAll(); q.onsuccess = () => res(q.result); }); });
+  const sumSpend = (d) => Object.values(d.spend || {}).reduce((a, v) => a + v, 0);
+  const ch = months1.map((d, i) => [sumSpend(months0[i]) - sumSpend(d), d.shonnyCard - months0[i].shonnyCard]).find(([a]) => Math.abs(a) > 0.001) || [0, 0];
+  ok(Math.abs(ch[0] - amt) < 0.01 && Math.abs(ch[1] - amt) < 0.01, `a purchase marked as the partner's leaves your spending and adds to their card (${ch} vs ${amt})`);
+  ok((await p.textContent('#s-summary')).includes("marked Shonny's"), "Spending says how much of the partner's card total was marked");
   await p.locator('#s-filter button', { hasText: 'Shonny' }).click(); await p.waitForTimeout(300);
   ok(await p.locator('#s-tx .tx', { hasText: "Shonny's" }).count() === expected + 1, 'tagged purchase shows under the partner filter');
   await p.click('.tab[data-tab=wealth]'); await p.waitForTimeout(300);
@@ -452,6 +454,79 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   ok(ln2.scheduled.length === 13 && ln2.requested === 0, 'opening the app re-plans the reminders without asking again');
   ok(nerrors.length === 0, 'no page errors in the app build ' + JSON.stringify(nerrors));
   await nctx.close();
+  // Spending categories: rename, add, hide and remove; new imports land in the review list
+  const cctx = await browser.newContext({ ...devices['Pixel 7'] });
+  const cp = await cctx.newPage(); const cerrors = []; cp.on('pageerror', (e) => cerrors.push(e.message));
+  const cpick = async (selector, files) => { const [fc] = await Promise.all([cp.waitForEvent('filechooser'), cp.click(selector)]); await fc.setFiles(files); };
+  const cclose = () => cp.evaluate(() => document.querySelectorAll('.sheet-bg').forEach((b) => b.remove()));
+  const cdb = (st, key) => cp.evaluate(async ([st, key]) => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); }); return new Promise((res) => { const q = db.transaction(st).objectStore(st).get(key); q.onsuccess = () => res(q.result); }); }, [st, key]);
+  await cp.goto(BASE); await cp.waitForTimeout(600); await cp.click('text=Load sample data'); await cp.waitForTimeout(800);
+  const nov0 = await cdb('months', '2026-10');
+  // rename Groceries
+  await cp.click('#settingsBtn'); await cp.click('text=Edit spending categories'); await cp.waitForTimeout(300);
+  await cp.click('.sheet [aria-label="Edit Groceries"]'); await cp.waitForTimeout(300);
+  await cp.fill('#cat-name', 'Food shopping'); await cp.click('.sheet-bg:last-child .btn.primary'); await cp.waitForTimeout(900);
+  ok((await cp.textContent('.sheet-bg:last-child .sheet')).includes('Food shopping') && !(await cp.textContent('.sheet-bg:last-child .sheet')).includes('Groceries'), 'renaming a category shows the new name in the list');
+  await cclose();
+  const nov = await cdb('months', '2026-10'); const novTx = await cdb('tx', '2026-10'); const conf = await cdb('config', 'app');
+  ok(nov.spend['Food shopping'] === nov0.spend.Groceries && !('Groceries' in nov.spend) && !novTx.some((t) => t.cat === 'Groceries') && conf.targets['Food shopping'] === 950 && !('Groceries' in conf.targets), 'renaming moves the transactions, month totals and budget target');
+  await cp.click('.tab[data-tab=spend]'); await cp.selectOption('#monthPick', '2026-10'); await cp.waitForTimeout(500);
+  ok((await cp.textContent('#s-cats')).includes('Food shopping'), 'Spending shows the renamed category');
+  ok(await cp.isHidden('#s-review'), 'no review list for data that was already there');
+  // new imports follow the rename and wait for review
+  const cofx = path.join(tmp, 'review.ofx');
+  fs.writeFileSync(cofx, 'OFXHEADER:100\n<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKACCTFROM><ACCTID>12341111</BANKACCTFROM><BANKTRANLIST>\n<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261203<TRNAMT>-61.20<NAME>WOOLWORTHS 4410 RICHMOND\n<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261204<TRNAMT>-14.00<NAME>NEWCAFE ESPRESSO BAR\n</BANKTRANLIST><LEDGERBAL><BALAMT>1100.00<DTASOF>20261204</LEDGERBAL></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>\n');
+  await cp.click('.tab[data-tab=checkin]'); await cp.waitForTimeout(300);
+  await cpick('#v-checkin [data-pick=csvIn]', cofx); await cp.waitForTimeout(900);
+  if (await cp.locator('.sheet').count()) { await cp.click('.sheet .btn.primary'); await cp.waitForTimeout(900); }
+  ok((await cp.textContent('.toast')).includes('Check them in Spending'), 'the import toast points to Spending');
+  await cp.click('.tab[data-tab=spend]'); await cp.waitForTimeout(600);
+  ok(await cp.isVisible('#s-review') && (await cp.textContent('#s-review')).includes('2 new') && !(await cp.textContent('#s-review')).includes('null'), 'imported transactions land in the review list');
+  const wv = await cp.locator('#s-revlist .tx', { hasText: 'WOOLWORTHS' }).locator('select').inputValue();
+  ok(wv === 'Food shopping', `a built-in rule follows the rename (${wv})`);
+  ok(await cp.locator('#s-tx .tx', { hasText: 'WOOLWORTHS' }).locator('.pill:text-is("New")').count() === 1, 'unreviewed transactions are marked New in the list');
+  await cp.click('#s-revlist .tx:has-text("WOOLWORTHS") button:text-is("Looks right")'); await cp.waitForTimeout(500);
+  ok((await cp.textContent('#s-review')).includes('1 new') && !(await cp.textContent('#s-review')).includes('WOOLWORTHS'), 'Looks right clears one transaction');
+  await cp.locator('#s-revlist .tx', { hasText: 'NEWCAFE' }).locator('select').selectOption('Cafes'); await cp.waitForTimeout(700);
+  ok(await cp.isHidden('#s-review'), 'choosing a category clears it too, and the list goes when empty');
+  const dec = await cdb('tx', '2026-12');
+  ok(dec.length === 2 && dec.every((t) => !t.review) && dec.find((t) => /NEWCAFE/.test(t.desc)).cat === 'Cafes', 'reviewed state is saved');
+  // add, hide, remove
+  await cp.click('#settingsBtn'); await cp.click('text=Edit spending categories'); await cp.click('.sheet button:text-is("Add a category")'); await cp.waitForTimeout(300);
+  await cp.fill('#cat-name', 'Kids'); await cp.click('.sheet [data-icon=heart]'); await cp.click('.sheet [data-colour=pink]');
+  await cp.click('.sheet-bg:last-child .btn.primary'); await cp.waitForTimeout(700);
+  await cp.click('.sheet [aria-label="Edit Pets"]'); await cp.waitForTimeout(300); await cp.check('#cat-hidden');
+  await cp.click('.sheet-bg:last-child .btn.primary'); await cp.waitForTimeout(700); await cclose();
+  await cp.click('.tab[data-tab=spend]'); await cp.selectOption('#monthPick', '2026-10'); await cp.waitForTimeout(500);
+  const opts = await cp.locator('#s-tx .tx select').evaluateAll((ss) => [...ss.find((s) => s.value !== 'Pets').options].map((o) => o.value));
+  ok(opts.includes('Kids') && !opts.includes('Pets') && (await cp.textContent('#s-cats')).includes('Pets'), 'a new category can be picked; a hidden one leaves the lists but still counts ' + opts.join('|'));
+  const k = await cdb('config', 'app'); const kids = k.spendCats.find((x) => x.name === 'Kids');
+  ok(kids && kids.icon === 'heart' && kids.color === 'pink', 'the new category keeps its icon and colour');
+  await cp.click('#settingsBtn'); await cp.click('text=Edit spending categories'); await cp.click('.sheet [aria-label="Edit Cafes"]'); await cp.waitForTimeout(300);
+  await cp.click('.sheet button:text-is("Remove this category")'); await cp.selectOption('#cat-moveto', 'Eating out');
+  await cp.click('.sheet button:text-is("Remove Cafes")'); await cp.waitForTimeout(1000); await cclose();
+  const nov2 = await cdb('months', '2026-10'); const dec2 = await cdb('tx', '2026-12'); const k2 = await cdb('config', 'app');
+  ok(!('Cafes' in nov2.spend) && Math.abs(nov2.spend['Eating out'] - (nov0.spend['Eating out'] + nov0.spend.Cafes)) < 0.01 && dec2.find((t) => /NEWCAFE/.test(t.desc)).cat === 'Eating out', 'removing a category moves its transactions and totals');
+  ok(k2.rules.some((r) => r.cat === 'Eating out' && /NEWCAFE/.test(r.match)) && !k2.rules.some((r) => r.cat === 'Cafes') && !k2.spendCats.some((x) => x.name === 'Cafes'), 'its rules move too');
+  await cp.click('#settingsBtn'); await cp.click('text=Edit spending categories'); await cp.click('.sheet button:text-is("Add a category")'); await cp.waitForTimeout(300);
+  await cp.fill('#cat-name', 'eating out'); await cp.click('.sheet-bg:last-child .btn.primary'); await cp.waitForTimeout(400);
+  ok((await cp.textContent('.toast')).includes("There's already a category called"), 'a duplicate name is refused');
+  await cclose(); await cp.reload(); await cp.waitForTimeout(800);
+  await cp.click('.tab[data-tab=spend]'); await cp.selectOption('#monthPick', '2026-10'); await cp.waitForTimeout(500);
+  ok((await cp.textContent('#s-cats')).includes('Food shopping') && !(await cp.textContent('#s-cats')).includes('Cafes'), 'category changes survive a reload');
+  // The same card linked under two numbers: a purchase in both files imports once
+  const ofxA = path.join(tmp, 'cardA.ofx'), ofxB = path.join(tmp, 'cardB.ofx');
+  fs.writeFileSync(ofxA, 'OFXHEADER:100\n<OFX><CREDITCARDMSGSRSV1><CCSTMTTRNRS><CCSTMTRS><CCACCTFROM><ACCTID>55552600</CCACCTFROM><BANKTRANLIST>\n<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261210<TRNAMT>-14.94<NAME>LYMOON COFFEE BALWYN\n</BANKTRANLIST></CCSTMTRS></CCSTMTTRNRS></CREDITCARDMSGSRSV1></OFX>\n');
+  fs.writeFileSync(ofxB, 'OFXHEADER:100\n<OFX><CREDITCARDMSGSRSV1><CCSTMTTRNRS><CCSTMTRS><CCACCTFROM><ACCTID>4000000000004049</CCACCTFROM><BANKTRANLIST>\n<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261207<TRNAMT>-14.94<NAME>LYMOON COFFEE BALWYN AUS Card ending 4049\n<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261208<TRNAMT>-9.00<NAME>ANOTHER CAFE\n</BANKTRANLIST></CCSTMTRS></CCSTMTTRNRS></CREDITCARDMSGSRSV1></OFX>\n');
+  for (const f of [ofxA, ofxB]) {
+    await cp.click('.tab[data-tab=checkin]'); await cp.waitForTimeout(300);
+    await cpick('#v-checkin [data-pick=csvIn]', f); await cp.waitForTimeout(600);
+    if (await cp.locator('.sheet select').count()) { await cp.selectOption('.sheet select', { label: 'Credit card' }); await cp.click('.sheet .btn.primary'); await cp.waitForTimeout(900); }
+  }
+  ok((await cp.textContent('.toast')).includes('Imported 1 new transaction'), 'a purchase already imported under the card\'s other number is not imported again ' + await cp.textContent('.toast'));
+  ok(cerrors.length === 0, 'no page errors while editing categories ' + JSON.stringify(cerrors));
+  await cctx.close();
+
   await browser.close();
   console.log(failed ? `${failed} failed` : 'all passed');
   process.exit(failed ? 1 : 0);

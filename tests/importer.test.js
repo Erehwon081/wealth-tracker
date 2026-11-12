@@ -167,3 +167,16 @@ test('two genuine identical purchases both survive a fresh import', () => {
   const p = planReplace([c('2026-11-04'), c('2026-11-04')], [{ acct: '2222', rows: [c('2026-11-04'), c('2026-11-04')] }]);
   assert.equal(p.rows.length, 2); assert.equal(p.replace.length, 2); assert.equal(p.carried, 2);
 });
+
+test('the same purchase from two file types is one purchase, whichever account key each file used', () => {
+  // A CSV labels the card's rows with the account number, a QIF with the card number; both keys belong to one account.
+  const acctOf = (t) => ({ 2600: 'card', 4049: 'card' })[t.acct] || t.acct;
+  const csv = [tx('2026-11-10', -14.94, 'LYMOON COFFEE BALWYN', { acct: '2600' }), tx('2026-11-09', -7, 'MARKET LANE COFFEE QUEEN VICTORIA', { acct: '2600' })];
+  const qif = [tx('2026-11-07', -14.94, 'LYMOON COFFEE BALWYN AUS Card ending 4049', { acct: '4049' }), tx('2026-11-09', -7, 'SQ *MARKET LANE COFFEE Melbourne', { acct: '4049' }), tx('2026-11-08', -5, 'NEW PLACE', { acct: '4049' })];
+  assert.deepEqual(newOnly(csv, qif, 3, acctOf).map((t) => t.desc), ['NEW PLACE']);
+  assert.equal(newOnly(csv, qif).length, 3); // without knowing the keys are one account, they look new
+  const g = findDuplicates([...csv, ...qif], () => 0, 3, acctOf);
+  assert.equal(g.length, 2);
+  // different transfer references are different transactions
+  assert.deepEqual(findDuplicates([tx('2026-11-08', -200, 'ONLINE Y3863318977 Linked Acc'), tx('2026-11-09', -200, 'ONLINE Y3863319999 Linked Acc')]), []);
+});

@@ -4,38 +4,40 @@ Every planned feature, numbered and grouped by what it does. Renumbered on 12 No
 
 ## Suggested build order
 
-Agreed in outline on 11 Nov 2026: 8, 9, then 3 alongside 7, then 23 (it can go in any time), then 24 last, because it describes the screens and should be written once they've stopped changing. Everything marked Later comes after these, in no agreed order.
+Agreed in outline on 11 Nov 2026: 8, 9, then 3 alongside 7, then 23. The user chose to build 3 and 7 first (done 12 Nov 2026). Done items are struck through.
+
+Remaining: 8, 9, then 23 (it can go in any time), then 24 last, because it describes the screens and should be written once they've stopped changing. Everything marked Later comes after these, in no agreed order.
 
 | # | Feature | Status |
 |---|---------|--------|
-| 1 | Bank import beyond NAB | Built (NAB is the only built-in profile) |
-| 2 | Remember which account a QIF file is for | Done |
-| 3 | Review queue | First priority |
+| ~~1~~ | ~~Bank import beyond NAB~~ | Built (NAB is the only built-in profile) |
+| ~~2~~ | ~~Remember which account a QIF file is for~~ | Done |
+| ~~3~~ | ~~Review queue~~ | Done |
 | 4 | Split a transaction | Later |
 | 5 | Tags across categories | Later |
 | 6 | CSV export of everything | Later |
-| 7 | Add and remove spending categories | Alongside 3 |
+| ~~7~~ | ~~Add and remove spending categories~~ | Done |
 | 8 | Recurring charges you can edit | First priority |
 | 9 | Safe-to-spend | First priority |
 | 10 | Cash flow forecast | Later |
 | 11 | Rollover budgets | Later |
 | 12 | Savings goals | Later |
-| 13 | Bills and set-asides | Cancelled |
-| 14 | Account balances view | Done |
+| ~~13~~ | ~~Bills and set-asides~~ | Cancelled |
+| ~~14~~ | ~~Account balances view~~ | Done |
 | 15 | Year in review | Later |
 | 16 | Home screen widget | Later |
-| 17 | Mortgage what-if | Done |
-| 18 | House ledger | Done |
-| 19 | Financial year (tax) view | Done (two parts left) |
+| ~~17~~ | ~~Mortgage what-if~~ | Done |
+| ~~18~~ | ~~House ledger~~ | Done |
+| ~~19~~ | ~~Financial year (tax) view~~ | Done (two parts left) |
 | 20 | Benchmark against an index fund | Later |
 | 21 | Dividend calendar | Later |
-| 22 | Month-end reminder notifications | Done |
+| ~~22~~ | ~~Month-end reminder notifications~~ | Done |
 | 23 | App lock | First priority |
 | 24 | Guided walkthrough for new users | Last |
 
 ## Importing and transactions
 
-### 1. Bank import beyond NAB (was 6) ✅ Built 10 Nov 2026 (steps 1–5; NAB is the only built-in bank profile)
+### ~~1. Bank import beyond NAB~~ (was 6) ✅ Built 10 Nov 2026 (steps 1–5; NAB is the only built-in bank profile)
 
 Agreed design: (1) OFX/QFX/QIF reader with balances; (2) guided CSV importer that guesses columns, previews, and remembers each layout by its header row; (3) built-in profiles, currently NAB only because no other banks' samples were available; (4) built-in Australian merchant rules under the user's own rules, partner features optional; (5) first-run setup and bank-neutral wording. Selling plan: a paid app on Google Play, no server. Open: built-in profiles for CBA, ANZ, Westpac, ING, Macquarie and Up once scrubbed sample exports are available; a privacy policy page and a Play listing.
 
@@ -45,13 +47,16 @@ Agreed design: (1) OFX/QFX/QIF reader with balances; (2) guided CSV importer tha
 - Open banking (the Consumer Data Right) needs an accredited server or a middleman such as Basiq, which breaks the local-only rule. Leave it out, or offer it as an explicit opt-in in a paid version.
 - To generalise for other users, replace the user-specific categorising with editable rules seeded with common Australian merchants, turn the partner fields into household members, and remove NAB-specific wording.
 
-### 2. Remember which account a QIF file is for (was 10) ✅ Done (11 Nov 2026)
+### ~~2. Remember which account a QIF file is for~~ (was 10) ✅ Done (11 Nov 2026)
 
 Recognised by card numbers in the memos (several cards can share one account), or by overlap with saved transactions. The file-name idea wasn't needed.
 
 - QIF files from most banks have no account number, so every import asks. Options, simplest first: recognise the account from transactions already saved (if the file overlaps one account's saved transactions, use it); remember the answer by the file name's pattern; read the account name if the file has an `!Account` block. Check a real (scrubbed) QIF from the user's bank first.
 
-### 3. Review queue (first priority)
+### ~~3. Review queue~~ ✅ Done (12 Nov 2026)
+
+Built as a To review card at the top of Spending, with Looks right per transaction and Accept all. Imported rows carry `review: true`; anything without it counts as reviewed.
+
 - New imports land as unreviewed; clear each with one tap (accept the category or change it). Needs a `reviewed` flag on transactions, defaulting to reviewed for existing data.
 
 ### 4. Split a transaction (later)
@@ -64,7 +69,10 @@ Recognised by card numbers in the memos (several cards can share one account), o
 
 ## Spending, bills and budgets
 
-### 7. Add and remove spending categories (was 9)
+### ~~7. Add and remove spending categories~~ (was 9) ✅ Done (12 Nov 2026)
+
+Built in Settings > Importing > Edit spending categories: add (name, icon, colour), rename, hide, or remove into another category.
+
 - Categories are fixed in code today (`SPEND_CATS` in `app.js`), with their own icons and colours. Make the spending list editable in Settings: add (name, icon, colour), rename, hide or remove. Flow categories (income, transfers, mortgage, partner) stay fixed, because the app's maths depends on them.
 - Removing a category in use asks which category its transactions, rules and budget move to. Renaming updates them. Must stay backup-compatible: older backups use the built-in names.
 
@@ -94,7 +102,7 @@ Cancelled by the user on 10 Nov 2026. Don't build it unless they ask again. Part
 
 ## Accounts and the big picture
 
-### 14. Account balances view (was 7) ✅ Done (11 Nov 2026)
+### ~~14. Account balances view~~ (was 7) ✅ Done (11 Nov 2026)
 
 Built as an Accounts card on Home, at the user's request: everyday accounts only (cash, offset, cards), each with its latest balance, account number (saved from CSV and OFX files, or typed in) and the date the balance is from. Numbers show the last 4 digits until Show numbers is tapped (not remembered).
 
@@ -109,20 +117,20 @@ Built as an Accounts card on Home, at the user's request: everyday accounts only
 
 ## Property and loans
 
-### 17. Mortgage what-if (was 3) ✅ Done (released 10 Nov 2026)
+### ~~17. Mortgage what-if~~ (was 3) ✅ Done (released 10 Nov 2026)
 
 - Loan accounts gain: fixed or variable, fixed-term end date, linked offset account, and rate history (date and rate).
 - From Wealth > Property and loans, tap a loan to set an extra monthly repayment, a lump sum and extra money in the offset. It shows the payoff date and total interest before and after, the interest saved, and a balance chart with both lines. It works per split and combined.
 - "What the rate change has cost": the rate difference applied to actual month-end balances since the change.
 
-### 18. House ledger (was 4) ✅ Done (released 10 Nov 2026)
+### ~~18. House ledger~~ (was 4) ✅ Done (released 10 Nov 2026)
 
 - The property account gains "Costs for this property": chosen categories and payees (mortgage, council rates, building insurance by payee, and a new Home repairs category), plus manual entries for years before the app.
 - A Wealth card by financial year: totals for each type of cost, mortgage interest vs principal (estimated from the rate), partner contributions from the mortgage-share transfers, and your net contribution. Feeds the House options numbers.
 
 ## Investing and tax
 
-### 19. Financial year (tax) view (was 5) ✅ Done (released 10 Nov 2026)
+### ~~19. Financial year (tax) view~~ (was 5) ✅ Done (released 10 Nov 2026)
 
 Not done: choosing individual parcels by hand (sales offer oldest first, highest cost first or newest first), and a direct import from the user's sheet (a CSV file import exists; its dividend tab layout is unknown).
 
@@ -139,7 +147,7 @@ Not done: choosing individual parcels by hand (sales offer oldest first, highest
 
 ## The app itself
 
-### 22. Month-end reminder notifications (was 1) ✅ Done (1.0.13, confirmed on the user's phone)
+### ~~22. Month-end reminder notifications~~ (was 1) ✅ Done (1.0.13, confirmed on the user's phone)
 
 - Android app only, using `@capacitor/local-notifications`. The website keeps its Home backup reminder, since it can't schedule notifications without a push server.
 - Settings > Reminders: a month-end check-in (off, last day, 1st, or a chosen date, plus a time), and a backup reminder (30 days after the last backup). Later: bills due, now that 8 is planned.
