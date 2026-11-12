@@ -8,6 +8,9 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 - Add, rename, hide and remove spending categories in Settings > Importing > Edit spending categories. Each one can have its own icon and colour. Renaming a category moves its transactions, rules and budget target to the new name. Removing one asks which category they should move to. A hidden category drops out of the category lists but its transactions still count. Income, transfers, mortgage and the partner categories stay as they are, because the totals depend on them.
 - New imports wait in a To review list at the top of Spending. Tap Looks right if the category is right, or pick another one, or accept them all at once. Until then they're marked New in the transaction list. Transactions you already had don't need reviewing.
 
+- After a QIF import, the message says which account the file went to, with a Wrong account? button. Choosing the right account moves the transactions there, drops any it already has, and links the file's card numbers to it, so later files go to the right place. Before, one wrong answer meant every later QIF with that card went to the wrong account without asking.
+- The review list shows each transaction's account by name.
+
 ### Changed
 - Marking a purchase as your partner's now takes it out of your spending and adds it to their card total, so it shows up in your category totals, your everyday spending and your budget. Spending shows how much of their card total you marked.
 

@@ -569,7 +569,7 @@ async function setCategory(t, m, cat) {
     $$('.toast').forEach((x) => x.remove()); document.body.append(t2); setTimeout(() => t2.remove(), 8000);
   }
 }
-const txWhen = (t) => t.date.slice(8) + ' ' + MONTHS[+t.date.slice(5, 7) - 1] + (t.acct ? ' · …' + t.acct : '');
+const txWhen = (t, named) => t.date.slice(8) + ' ' + MONTHS[+t.date.slice(5, 7) - 1] + (t.acct ? ' · ' + ((named && acctFor(t.acct)?.name) || '…' + t.acct) : '');
 // New imports wait here until each is accepted with one tap or given another category. Older data has no flag, so it counts as reviewed.
 function renderReview() {
   const box = $('#s-review'); if (!box) return;
@@ -584,7 +584,7 @@ function renderReview() {
       const sel = el('select', { 'aria-label': 'Category for ' + t.desc }, pickCats(t.cat).map((k) => el('option', { value: k, selected: k === t.cat }, pLabel(k))));
       sel.addEventListener('change', () => setCategory(t, m, sel.value));
       return el('div', { class: 'tx has-ic' }, catIcon(t.cat), el('span', { class: 'desc', text: t.merchant || t.desc }), el('span', { class: 'num ' + (t.amt > 0 ? 'pos' : ''), text: $2(t.amt) }),
-        el('span', { class: 'meta' }, el('span', { text: txWhen(t) }), sel, el('button', { class: 'pill', type: 'button', text: 'Looks right', 'aria-label': `${t.merchant || t.desc} looks right`, onclick: () => accept([[m, t]]) })));
+        el('span', { class: 'meta' }, el('span', { text: txWhen(t, true) }), sel, el('button', { class: 'pill', type: 'button', text: 'Looks right', 'aria-label': `${t.merchant || t.desc} looks right`, onclick: () => accept([[m, t]]) })));
     })),
     el('p', { class: 'cap muted', hidden: items.length <= shown.length, text: `Showing the newest ${shown.length} of ${items.length}.` }),
     el('div', { class: 'btns' }, el('button', { class: 'btn small', type: 'button', text: items.length === 1 ? 'Accept it' : `Accept all ${items.length}`, onclick: () => accept(items) })));
@@ -1219,10 +1219,11 @@ async function readFiles(files) {
       if (!g.rows.length) continue;
       if (!g.acct) {
         // A card number already linked to an account, or a clear overlap with saved transactions, says which account it is. Otherwise ask.
-        let key = (g.cards || []).map((k) => acctFor(k) && k).find(Boolean) || '';
+        let key = (g.cards || []).map((k) => acctFor(k) && k).find(Boolean) || ''; g.how = 'card';
         if (key) { const a = acctFor(key); key = acctKeys(a)[0]; }
-        if (!key) { await ensureAllTx(); key = guessAccount(Object.values(S.tx).flat(), g.rows); }
-        if (!key) { key = await askAccount(f.name); if (key === null) continue; }
+        if (!key) { await ensureAllTx(); key = guessAccount(Object.values(S.tx).flat(), g.rows); g.how = 'overlap'; }
+        if (!key) { key = await askAccount(f.name); g.how = 'asked'; if (key === null) continue; }
+        g.file = f.name; g.guessed = true;
         await rememberCards(key, g.cards);
         g.acct = key; g.rows.forEach((t) => { t.acct = key; });
       }
@@ -1241,8 +1242,8 @@ async function importFiles(files) {
   const touched = [...new Set(all.map((t) => t.date.slice(0, 7)))];
   let existing = []; for (const m of new Set(touched.flatMap((m) => [mAdd(m, -1), m, mAdd(m, 1)]))) existing = existing.concat(await loadTx(m));
   const fresh = []; for (const g of groups) fresh.push(...newOnly(existing.concat(fresh), g.rows, 3, acctResolver()));
-  const byMonth = {};
-  for (const t of fresh) { const m = t.date.slice(0, 7); (byMonth[m] ||= []).push({ ...t, cat: classify(t, c).cat, review: true }); }
+  const byMonth = {}; const stored = new Map();
+  for (const t of fresh) { const m = t.date.slice(0, 7); const row = { ...t, cat: classify(t, c).cat, review: true }; stored.set(t, row); (byMonth[m] ||= []).push(row); }
   const added = fresh.length;
   for (const [m, rows] of Object.entries(byMonth)) {
     const merged = (await loadTx(m)).concat(rows).sort((a, b) => b.date.localeCompare(a.date));
@@ -1252,8 +1253,46 @@ async function importFiles(files) {
   for (const m of touched) await applySummary(m, true);
   const months = touched.sort();
   S.month = months[months.length - 1]; fillMonthPick();
-  toast(`Imported ${added} new transaction${added === 1 ? '' : 's'} for ${months.map((m) => mLabel(m)).join(', ')}${added ? '. Check them in Spending' : ''}${got.qif ? '. Next time, choose CSV if your bank offers it: it gives balances and better categories.' : ''}`);
+  const msg = `Imported ${added} new transaction${added === 1 ? '' : 's'} for ${months.map((m) => mLabel(m)).join(', ')}${added ? '. Check them in Spending' : ''}${got.qif ? '. Next time, choose CSV if your bank offers it: it gives balances and better categories.' : ''}`;
   render(true);
+  // A QIF file doesn't say which account it's from, so say which one the app chose, and let it be put right.
+  const filed = groups.filter((g) => g.guessed).map((g) => ({ g, rows: g.rows.map((t) => stored.get(t)).filter(Boolean), a: acctFor(g.acct) })).filter((x) => x.a && x.rows.length);
+  if (!filed.length) { toast(msg); return; }
+  const names = [...new Set(filed.map((x) => x.a.name))].join(' and ');
+  const t2 = el('div', { class: 'toast', role: 'status' }, `${msg} QIF filed under ${names}. `, el('button', { class: 'btn small', type: 'button', text: 'Wrong account?', style: 'margin-left:8px', onclick: () => { t2.remove(); wrongAccountSheet(filed); } }));
+  $$('.toast').forEach((x) => x.remove()); document.body.append(t2); setTimeout(() => t2.remove(), 15000);
+}
+// Moves transactions imported from a QIF to the account they really came from. The card numbers in the file are
+// linked to that account instead, so the next file goes there too. Any that the right account already has are dropped.
+async function moveImported(rows, from, to, cards) {
+  const toKey = acctKeys(to)[0] || to.id; if (!acctKeys(to).length) to.match = toKey;
+  const unlink = (cards || []).filter((k) => acctFor(k) === from);
+  if (unlink.length) { from.match = acctKeys(from).filter((k) => !unlink.includes(k)).join(','); await writeDoc('accounts/' + from.id, { ...from }); }
+  const add = (cards || []).filter((k) => !acctFor(k)); to.match = [...acctKeys(to), ...add].join(','); await writeDoc('accounts/' + to.id, { ...to });
+  await loadAllTx();
+  const gone = new Set(rows); const months = new Set(rows.map((t) => t.date.slice(0, 7)));
+  for (const m of months) S.tx[m] = (S.tx[m] || []).filter((t) => !gone.has(t));
+  const moved = rows.map((t) => ({ ...t, acct: toKey }));
+  const keep = newOnly(Object.values(S.tx).flat(), moved, 3, acctResolver());
+  for (const t of keep) S.tx[t.date.slice(0, 7)].push(t);
+  for (const m of months) { S.tx[m].sort((a, b) => b.date.localeCompare(a.date)); await writeDoc('tx/' + m, { rows: S.tx[m] }); await applySummary(m, false); }
+  return { moved: keep.length, dropped: moved.length - keep.length };
+}
+function wrongAccountSheet(filed) {
+  const how = { card: 'by its card number', overlap: 'from transactions already saved', asked: 'as you chose' };
+  const body = el('div', { class: 'card' },
+    el('p', { class: 'cap muted', text: 'Choose the account each file is really from. Its transactions move there, and its card numbers are linked to that account so the next file goes there too.' }),
+    ...filed.map((x, i) => fieldRow(x.g.file || 'QIF file', `${x.rows.length} transaction${x.rows.length === 1 ? '' : 's'}, filed under ${x.a.name} ${how[x.g.how] || ''}`.trim(),
+      el('select', { id: 'wa-' + i, class: 'month-pick' }, S.accounts.filter((a) => LIQUID.has(a.type) || a === x.a).map((a) => el('option', { value: a.id, selected: a === x.a }, a.name))), 'wa-' + i)));
+  sheet('Wrong account?', body, async () => {
+    let moved = 0, dropped = 0;
+    for (const [i, x] of filed.entries()) {
+      const to = S.accounts.find((a) => a.id === $('#wa-' + i).value); if (!to || to === x.a) continue;
+      const r = await moveImported(x.rows, x.a, to, x.g.cards); moved += r.moved; dropped += r.dropped;
+    }
+    render(true);
+    toast(moved || dropped ? `Moved ${moved} transaction${moved === 1 ? '' : 's'}${dropped ? `. ${dropped} ${dropped === 1 ? 'was' : 'were'} already there, so ${dropped === 1 ? 'it was' : 'they were'} removed` : ''}.` : 'Nothing changed');
+  }, 'Move');
 }
 
 // ---------- duplicates ----------

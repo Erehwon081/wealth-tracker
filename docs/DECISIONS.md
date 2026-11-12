@@ -50,6 +50,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 - **`config.spendCats` [{name, icon, color, hidden}]** replaces the fixed list when set; without it the built-in `SPEND_CATS` apply, so older backups are unchanged. Flow categories stay fixed in code.
 - **`config.catMap` {old or built-in name: current name}**: `classify()` passes its result through `mapCat`, so built-in merchant rules, the NAB map and code that names categories (Council rates, Home repairs, Insurance in the ledger; lumpy defaults) follow renames and removals. Adding a category with an old name deletes that map entry.
 - **Rename and remove both go through `moveCategory`**: every month's transactions, hand-keyed month totals, rules and targets move; the new list is set before totals are worked out again. Hidden categories still count; they only leave the pickers.
+- **QIF account choices can be undone.** A card number linked to the wrong account sent every later QIF there silently, and the misfiled rows then made `guessAccount` agree (the user's …2600 purchases ended up on their …4049 account). The import message now names the account, and Wrong account? (`moveImported`) moves that import's rows, drops ones the right account already has (`newOnly`), and moves the card numbers. Rows from earlier imports aren't moved: clean those with Replace with a fresh import on the wrong account.
 - **Review flag is `t.review: true`** on imported rows (and carried by Replace with a fresh import); no flag means reviewed, so existing data needed no migration.
 
 ### Re-importing and corrections
@@ -86,7 +87,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 
 ## Log
 
-- **12 Nov 2026**: Built roadmap 3 (review queue) and 7 (editable spending categories). Marking a purchase as the partner's now moves it to their card total. Fixed duplicates from one card imported under two keys. Done roadmap items are struck through.
+- **12 Nov 2026**: Built roadmap 3 (review queue) and 7 (editable spending categories). Marking a purchase as the partner's now moves it to their card total. Fixed duplicates from one card imported under two keys. QIF imports name the account they went to, with Wrong account? to move them; the user's duplicates were QIFs misfiled to another account. Done roadmap items are struck through.
 - **12 Nov 2026**: Renumbered the roadmap 1–24 and grouped it by function, at the user's request. Log entries before this date use the old numbers; the Roadmap gives each item's old number.
 - **11 Nov 2026**: Home Accounts card with account numbers and balance dates (roadmap 7). CSV recommended over QIF in Check-in. QIF imports recognise their account by card numbers or saved transactions (roadmap 10); first tried one account per card, which was wrong: the user's two cards share one account. Added the user's ideas list to the roadmap, with safe-to-spend, review queue and app lock first.
 - **10 Nov 2026**: Spending's category bar now fills its width with each category's share of spend (1.0.26). Full-width toasts (1.0.24) came from misreading "the whole bar"; reverted to fit-content bubbles at the user's request (1.0.28), keeping the outline toast button.

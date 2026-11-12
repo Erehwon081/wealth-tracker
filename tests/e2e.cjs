@@ -415,6 +415,37 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   await ip.click('.tab[data-tab=spend]'); await ip.waitForTimeout(500);
   const qtx = await ip.textContent('#s-tx');
   ok(qtx.includes('CORNER CAFE') && qtx.includes('MUFFINS') && !qtx.includes('Card ending'), 'the card memo is left out of the description');
+  // A QIF filed under the wrong account: the message names the account, and Wrong account? moves it and its card number
+  const idb = (st) => ip.evaluate(async (st) => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); }); return new Promise((res) => { const q = db.transaction(st).objectStore(st).getAll(); q.onsuccess = () => res(q.result); }); }, st);
+  await ip.click('.tab[data-tab=checkin]'); await ip.waitForTimeout(300);
+  fs.writeFileSync(qifPath, '!Type:Bank\nD12/11/26\nT-25.60\nPEXAMPLE SHOP     SYDNEY\nMCard ending 5555\n^\nD16/11/26\nT-11.00\nPLYMOON COFFEE\nMCard ending 5555\n^\n');
+  await ipick('#v-checkin [data-pick=csvIn]', qifPath); await ip.waitForTimeout(500);
+  await ip.selectOption('#ia-acct', { label: 'Savings account' }); await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(900);
+  fs.writeFileSync(qifPath, '!Type:Bank\nD17/11/26\nT-3.00\nPCORNER CAFE\nMCard ending 5555\n^\n');
+  await ipick('#v-checkin [data-pick=csvIn]', qifPath); await ip.waitForTimeout(900);
+  ok(!(await ip.locator('.sheet').count()) && (await ip.textContent('.toast')).includes('QIF filed under Savings account'), 'after one wrong answer the next QIF is filed silently, but the message names the account');
+  await ip.click('.toast button:text-is("Wrong account?")'); await ip.waitForTimeout(300);
+  ok((await ip.textContent('.sheet')).includes('filed under Savings account by its card number'), 'Wrong account? says how the account was chosen');
+  await ip.selectOption('.sheet select', { label: 'Everyday account' }); await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(900);
+  let accts = await idb('accounts'); const ev = accts.find((a) => a.name === 'Everyday account'), sv = accts.find((a) => a.name === 'Savings account');
+  const evKey = ev.match.split(',')[0], svKey = sv.match.split(',')[0];
+  ok(ev.match.split(',').includes('5555') && !sv.match.split(',').includes('5555'), `the card number moves to the right account (${ev.match} / ${sv.match})`);
+  let novRows = (await idb('tx')).flat();
+  ok(novRows.find((t) => t.desc.startsWith('CORNER CAFE') && t.date === '2026-11-17').acct === evKey, 'the misfiled transactions move to the right account');
+  // a file with a new card asks again; the earlier misfiled import isn't touched
+  fs.writeFileSync(qifPath, '!Type:Bank\nD18/11/26\nT-2.00\nPNEWSAGENT\nMCard ending 7777\n^\n');
+  await ipick('#v-checkin [data-pick=csvIn]', qifPath); await ip.waitForTimeout(500);
+  if (await ip.locator('.sheet #ia-acct').count()) { await ip.selectOption('#ia-acct', { label: 'Everyday account' }); await ip.click('.sheet .btn.primary'); await ip.waitForTimeout(900); }
+  novRows = (await idb('tx')).flat();
+  const lymoon = novRows.filter((t) => t.desc.startsWith('LYMOON'));
+  const shops = novRows.filter((t) => t.desc.startsWith('EXAMPLE SHOP'));
+  ok(lymoon.length === 1 && lymoon[0].acct === svKey && shops.length === 2, 'an earlier import stays where it was until it is moved');
+  fs.writeFileSync(qifPath, '!Type:Bank\nD19/11/26\nT-1.50\nPCORNER CAFE\nMCard ending 5555\n^\n');
+  await ipick('#v-checkin [data-pick=csvIn]', qifPath); await ip.waitForTimeout(900);
+  ok(!(await ip.locator('.sheet').count()) && (await ip.textContent('.toast')).includes('QIF filed under Everyday account'), 'the next file with that card goes to the right account');
+  await ip.evaluate(() => document.querySelectorAll('.toast').forEach((t) => t.remove()));
+  await ip.click('.tab[data-tab=spend]'); await ip.selectOption('#monthPick', '2026-11'); await ip.waitForTimeout(600);
+  ok((await ip.textContent('#s-revlist')).includes('Everyday account'), 'the review list shows the account name');
   ok(ierrors.length === 0, 'no page errors in setup and import ' + JSON.stringify(ierrors));
   await ictx.close();
 
