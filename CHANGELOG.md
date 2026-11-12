@@ -4,6 +4,8 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+## 1.0.35 (12 Nov 2026)
+
 ### Added
 - Add, rename, hide and remove spending categories in Settings > Importing > Edit spending categories. Each one can have its own icon and colour. Renaming a category moves its transactions, rules and budget target to the new name. Removing one asks which category they should move to. A hidden category drops out of the category lists but its transactions still count. Income, transfers, mortgage and the partner categories stay as they are, because the totals depend on them.
 - New imports wait in a To review list at the top of Spending. Tap Looks right if the category is right, or pick another one, or accept them all at once. Until then they're marked New in the transaction list. Transactions you already had don't need reviewing.
