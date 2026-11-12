@@ -6,7 +6,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 
 - **Live prices are unverified against a real sheet.** The cloud sandbox blocks docs.google.com, so cross-origin fetches of the published CSV were never tested. The user hasn't yet pasted real links (they once saved three empty boxes). If Refresh prices says "Couldn't reach Google Sheets", try Google's other CSV link format (`/gviz/tq?tqx=out:csv&sheet=<tab>`, which needs link sharing on), or an Apps Script web app returning JSON. Don't add a proxy.
 - **Untested on a real phone:** Back up now through the share sheet, the back-button order, status bar icon colour per theme, and vibration. The user has installed the APK and reported layout issues only so far.
-- **Roadmap items 3, 4 and 5 are untested with the user's real data.** They need: each mortgage split's linked offset and rate history entered (Wealth > tap the loan in Accounts and loans), the building insurer named in the ledger's Edit, and dividends entered or imported. Ask for the headers of the user's dividend sheet tab if the CSV import doesn't read it.
+- **Roadmap items 17, 18 and 19 are untested with the user's real data.** They need: each mortgage split's linked offset and rate history entered (Wealth > tap the loan in Accounts and loans), the building insurer named in the ledger's Edit, and dividends entered or imported. Ask for the headers of the user's dividend sheet tab if the CSV import doesn't read it.
 - **Bank import is only tested with NAB CSVs and made-up OFX, QIF and CSV files.** Add built-in profiles for other banks only from real, scrubbed sample exports, and test OFX/QIF against a real bank download when one is available.
 - **The first user's own merchant words are still in the built-in rules** (BAKER, BROTHERS, JORGE, ANMF, flagged in `merchants.js`). Review them before selling.
 - **Version numbering:** `1.0.<run number>` skips numbers because branch builds use them too. A version set in `package.json` (minor for features, patch for fixes), with `versionCode` still taken from the run number, was suggested but not decided.
@@ -34,7 +34,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 - **Body top padding equals the status-bar inset**: without it the sticky header was pushed down over the first card in the app.
 - **APK links must be opened in Chrome itself**: the Claude app's in-app browser stalls on APK downloads.
 
-### Bank import (roadmap 6)
+### Bank import (roadmap 1)
 - **`www/js/importer.js` (pure, unit tested) reads every file into one shape** `{date, amt, desc, merchant, acct, bal, type, nabCat}`. OFX/QFX and QIF are parsed directly; CSVs go through `resolveMapping`: a built-in profile (matched by required header names, mapped by name so column order doesn't matter), then a saved user profile (matched by `signature`: the lower-cased header row, or column count if there's no header), then `guessMapping` for the user to confirm.
 - **Why profiles are optional:** if a bank changes its CSV, the guided mapping still works and the user re-confirms once. The app never depends on a profile being up to date.
 - **OFX closing balance** is put on the newest transaction's `bal`, so the existing month-end balance logic (`balancesFromRows`) picks it up unchanged.
@@ -53,7 +53,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 - **Known trade-off:** two identical purchases (same shop, same amount) within 3 days of each other, straddling the start of a download, count as one.
 - **A category change saves a rule for that shop straight away** (key: description up to the first run of 4+ digits, 24 characters), with "Only this one" to undo it. The old 6-second "Always file?" prompt meant corrections were easily lost.
 
-### Loans, ledger and tax (roadmap 3–5)
+### Loans, ledger and tax (roadmap 17–19)
 - **Pure maths in `www/js/loans.js` and `www/js/tax.js`, unit tested.** `simulate()` runs loans month by month; extras go to the highest-rate loan first; a shared offset is counted once. Freed-up repayments are not rolled into other loans, in either the baseline or the scenario.
 - **Loan fields on the account:** `rateType`, `fixedUntil`, `offsetId`, `rateHistory [{date, rate}]` (first entry is the starting rate). `a.rate` stays the current rate; history is only for past months.
 - **Rate-change cost** uses actual month-end balances net of the linked offset, against the first rate in the history.
@@ -79,6 +79,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 
 ## Log
 
+- **12 Nov 2026**: Renumbered the roadmap 1–24 and grouped it by function, at the user's request. Log entries before this date use the old numbers; the Roadmap gives each item's old number.
 - **11 Nov 2026**: Home Accounts card with account numbers and balance dates (roadmap 7). CSV recommended over QIF in Check-in. QIF imports recognise their account by card numbers or saved transactions (roadmap 10); first tried one account per card, which was wrong: the user's two cards share one account. Added the user's ideas list to the roadmap, with safe-to-spend, review queue and app lock first.
 - **10 Nov 2026**: Spending's category bar now fills its width with each category's share of spend (1.0.26). Full-width toasts (1.0.24) came from misreading "the whole bar"; reverted to fit-content bubbles at the user's request (1.0.28), keeping the outline toast button.
 - **9 Nov 2026**: Built the PWA from the artifact, deployed to Pages. Partner tagging, expected pay, the new look, motion and swipe, the first Android releases (1.0.4, 1.0.6, 1.0.8).
