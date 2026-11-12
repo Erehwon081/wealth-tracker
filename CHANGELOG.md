@@ -4,6 +4,8 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+## 1.0.36 (12 Nov 2026)
+
 ### Changed
 - The house ledger counts every repayment made into your home loan accounts once you import those accounts' transactions. That includes repayments from accounts the app doesn't see, such as your partner's. Interest is what the loan actually charged, so the split between interest and paying off the loan is no longer an estimate for those months.
 - Your partner's part of the house costs is now their share of the mortgage repayments (50%, or whatever you set as your mortgage share in Settings), not the transfers they send you.
