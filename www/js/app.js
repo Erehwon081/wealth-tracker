@@ -6,6 +6,7 @@ import { planReminders, DEFAULT_REMINDERS, isOurs } from './reminders.js';
 import { simulate, rateAt, rateChangeCost, sortHistory } from './loans.js';
 import { newOnly, guessAccount, findDuplicates, planReplace, parseDate, last4, detectKind, parseOfx, parseQif, readCsv, resolveMapping, applyMapping, mappingOk } from './importer.js';
 import { seedCategory } from './merchants.js';
+import { detectRecurring, chargeStatus, rollForward, perMonth, PERIODS, PERIOD_LABEL } from './recurring.js';
 import { fyOf, fyLabel, fyList, fySummary, matchParcels, unitsHeld, costHeld, totalDivs, frankingCredit, parseDividendRows, taxCsv } from './tax.js';
 
 'use strict';
@@ -569,6 +570,65 @@ function renderCheckinResult() {
   r.append(line('Net worth, your share', $0(nw.nw)), line('Your own spending', $0(f.own)), line('Everyday spending', $0(f.everyday), f.everyday <= cfg().everydayTarget ? 'pos' : 'neg'), line('Cash flow', $0(f.net), f.net >= 0 ? 'pos' : 'neg'), line('Savings rate', f.rate == null ? '—' : pct(f.rate)));
 }
 
+// ---------- recurring charges ----------
+// Your list of bills and subscriptions (config.recurring), plus ones the app spots in your transactions for you to confirm.
+// Suggestions you turn down are remembered by payee (config.recurringSkip) so they don't come back.
+const todayIso = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+const shortDate = (d) => `${+d.slice(8)} ${MONTHS[+d.slice(5, 7) - 1]}${d.slice(0, 4) !== todayIso().slice(0, 4) ? ' ' + d.slice(0, 4) : ''}`;
+function recurringRows() { const lk = loanAcctMap(); return Object.values(S.tx).flat().filter((t) => t.amt < 0 && isSpend(t.cat) && !(t.acct && lk.has(t.acct))); }
+function recurringSuggestions(rows) {
+  const c = cfg(); const mine = c.recurring || [];
+  const asOf = rows.reduce((m, t) => (t.date > m ? t.date : m), '');
+  if (!asOf) return [];
+  return detectRecurring(rows, asOf, c.recurringSkip || []).filter((x) => !mine.some((r) => r.words && (x.words.startsWith(r.words.toUpperCase()) || r.words.toUpperCase().startsWith(x.words))))
+    .map((x) => ({ ...x, next: rollForward(x.next, x.every, todayIso()) }));
+}
+let showAllRec = false;
+function renderRecurring() {
+  const box = $('#s-subs'); if (!box) return;
+  if (!allTxDone) ensureAllTx().then(() => { if (S.view === 'spend') renderRecurring(); });
+  const c = cfg(); const mine = c.recurring || []; const rows = recurringRows(); const today = todayIso();
+  const sugg = recurringSuggestions(rows);
+  box.replaceChildren(el('div', { class: 'row' }, el('h2', { text: 'Recurring charges' }), el('button', { class: 'btn small', type: 'button', text: 'Add', onclick: () => recurringSheet(null) })));
+  if (!mine.length && !sugg.length) { box.append(el('p', { class: 'cap muted', text: 'Add the bills and subscriptions you pay regularly. Once a few months are imported, the app suggests ones it finds.' })); return; }
+  if (mine.length) {
+    const items = mine.map((r) => ({ r, st: chargeStatus(r, rows, today) })).sort((a, b) => a.st.next.localeCompare(b.st.next));
+    box.append(el('div', { class: 'list', id: 's-rec' }, items.map(({ r, st }) => el('div', { class: 'row tap', role: 'button', tabindex: '0', 'aria-label': `Edit ${r.name}`, onclick: () => recurringSheet(r), onkeydown: (e) => { if (e.key === 'Enter') recurringSheet(r); } },
+      el('span', {}, r.name, el('small', { class: 'cap muted', style: 'display:block', text: `${PERIOD_LABEL[r.every]} · next ${shortDate(st.next)}${st.changed ? ` · last charge was ${$2(st.changed)}` : ''}` })),
+      el('span', { class: 'num' + (st.changed ? ' wrn' : ''), text: $2(Math.abs(n(r.amount))) })))));
+    box.append(el('p', { class: 'cap muted', text: `About ${$0(mine.reduce((sum, r) => sum + perMonth(r.amount, r.every), 0))} a month.${items.some((x) => x.st.changed) ? ' An amount in orange has changed: tap it to update.' : ''}` }));
+  } else box.append(el('p', { class: 'cap muted', text: 'None added yet.' }));
+  if (!sugg.length) return;
+  const shown = showAllRec ? sugg : sugg.slice(0, 5);
+  box.append(el('h3', { text: 'Might be recurring', style: 'margin-top:12px' }),
+    el('p', { class: 'cap muted', text: 'Found in your transactions: the same payee, a similar amount, at regular times. Add the ones that are bills or subscriptions.' }),
+    el('div', { class: 'list', id: 's-recsugg' }, shown.map((x) => el('div', { class: 'tx' },
+      el('span', { class: 'desc', text: x.name }), el('span', { class: 'num', text: $2(x.amount) }),
+      el('span', { class: 'meta' }, el('span', { text: `${PERIOD_LABEL[x.every]}, ${x.count} charges, last ${shortDate(x.last)}` }),
+        el('button', { class: 'pill', type: 'button', text: 'Add', 'aria-label': `Add ${x.name}`, onclick: async () => { await saveConfig({ recurring: [...(cfg().recurring || []), { id: 'r' + Date.now().toString(36), name: x.name, words: x.words, amount: x.amount, every: x.every, next: x.next }] }); toast(`Added ${x.name}`); } }),
+        el('button', { class: 'pill', type: 'button', text: 'Not recurring', 'aria-label': `${x.name} is not recurring`, onclick: async () => { await saveConfig({ recurringSkip: [...(cfg().recurringSkip || []), x.key] }); } }))))),
+    ...(sugg.length > shown.length ? [el('div', { class: 'btns' }, el('button', { class: 'btn small', type: 'button', text: `Show all ${sugg.length}`, onclick: () => { showAllRec = true; renderRecurring(); } }))] : []));
+}
+function recurringSheet(r) {
+  const isNew = !r; const x = r ? { ...r } : { name: '', words: '', amount: '', every: 'month', next: todayIso() };
+  const st = r ? chargeStatus(r, recurringRows(), todayIso()) : null;
+  const body = el('div', { class: 'card' },
+    fieldRow('Name', null, el('input', { id: 'rc-name', class: 'plain', value: x.name, autocomplete: 'off', maxlength: '40' }), 'rc-name'),
+    fieldRow('Amount', st?.lastPaid ? `Last charged ${$2(st.lastPaid.amount)} on ${shortDate(st.lastPaid.date)}` : null, moneyInput('rc-amt', x.amount, 'Amount'), 'rc-amt'),
+    st?.changed ? el('div', { class: 'btns' }, el('button', { class: 'btn small', type: 'button', text: `Use ${$2(st.changed)}`, onclick: (e) => { $('#rc-amt').value = st.changed; e.currentTarget.remove(); } })) : null,
+    fieldRow('How often', null, el('select', { id: 'rc-every', class: 'month-pick' }, PERIODS.map((p) => el('option', { value: p, selected: p === x.every }, PERIOD_LABEL[p]))), 'rc-every'),
+    fieldRow('Next due', null, el('input', { id: 'rc-next', class: 'plain', type: 'date', value: x.next || todayIso() }), 'rc-next'),
+    fieldRow('Matches transactions containing', 'So the app can find each payment and keep the next date up to date', el('input', { id: 'rc-words', class: 'plain', value: x.words || '', autocapitalize: 'characters', autocomplete: 'off', placeholder: 'e.g. NETFLIX' }), 'rc-words'),
+    isNew ? null : el('div', { class: 'btns' }, el('button', { class: 'btn small danger', type: 'button', text: 'Remove', onclick: async () => { await saveConfig({ recurring: (cfg().recurring || []).filter((y) => y.id !== r.id) }); close(); toast(`Removed ${r.name}`); } })));
+  const close = sheet(isNew ? 'Add a recurring charge' : `Edit ${r.name}`, body, async () => {
+    const name = $('#rc-name').value.trim(), amount = Math.abs(n($('#rc-amt').value)), next = $('#rc-next').value;
+    if (!name) { toast('Give it a name'); return false; }
+    if (!amount) { toast('Enter the amount'); return false; }
+    const item = { id: r?.id || 'r' + Date.now().toString(36), name, amount, every: $('#rc-every').value, next: next || todayIso(), words: $('#rc-words').value.trim().toUpperCase() };
+    await saveConfig({ recurring: isNew ? [...(cfg().recurring || []), item] : (cfg().recurring || []).map((y) => (y.id === r.id ? item : y)) });
+  });
+}
+
 // Files a transaction under a new category, and remembers it for that shop so the next import files it the same way.
 // Existing transactions aren't changed. Choosing a category also clears the transaction from the review list.
 async function setCategory(t, m, cat) {
@@ -625,13 +685,7 @@ async function renderSpend() {
   const pickCat = (k) => { S.catFilter = S.catFilter === k ? null : k; renderSpend().then(() => { if (S.catFilter) $('#s-txcard').scrollIntoView({ behavior: 'smooth', block: 'start' }); }); };
   for (const [k, v] of sp) { const tgt = c.targets[k]; const over = tgt && v > tgt; cats.append(el('div', { class: 'catrow tap' + (S.catFilter === k ? ' sel' : ''), role: 'button', tabindex: '0', 'aria-label': `Show ${k} transactions`, onclick: () => pickCat(k), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickCat(k); } } }, el('div', { class: 'cat-line' }, catIcon(k), el('div', { class: 'cat-body' }, el('div', { class: 'row' }, el('span', { text: k }), el('span', { class: 'num ' + (over ? 'neg' : ''), text: $0(v) + (tgt ? ` / ${$0(tgt)}` : '') })), el('div', { class: 'bar' }, el('i', { class: over ? 'over' : 'cat', style: `width:${(v / max) * 100}%;--c:${catColor(k)}` })))))); }
 
-  // recurring charges
-  const subs = $('#s-subs'); subs.replaceChildren(el('h2', { text: 'Recurring charges' }));
-  const allRows = Object.values(S.tx).flat();
-  const by = {}; for (const t of rows) if (isSpend(t.cat) && t.amt < 0) { const k = (t.merchant || t.desc).replace(/\d{3,}.*$/, '').trim().slice(0, 32); (by[k] ||= []).push(t); }
-  const rec = Object.entries(by).filter(([k, ts]) => ['Subscriptions', 'Bills', 'Insurance'].map(mapCat).includes(ts[0].cat) || allRows.filter((x) => (x.merchant || x.desc).startsWith(k) && x.date.slice(0, 7) !== m).length).map(([k, ts]) => [k, ts.reduce((s, t) => s - t.amt, 0), ts.length]).sort((a, b) => b[1] - a[1]).slice(0, 12);
-  if (!rec.length) subs.append(el('p', { class: 'cap muted', text: 'Subscriptions and bills show here once a month is imported.' }));
-  else { subs.append(el('div', { class: 'list' }, rec.map(([k, v, cnt]) => el('div', { class: 'row' }, el('span', { text: k + (cnt > 1 ? ` ×${cnt}` : '') }), el('span', { class: 'num', text: $2(v) }))))); subs.append(el('p', { class: 'cap muted', text: `About ${$0(rec.reduce((s, r) => s + r[1], 0))} a month. Worth a look for anything you no longer use.` })); }
+  renderRecurring();
 
   // transactions
   const filters = [['spend', 'Spending'], ['flow', 'Bills & transfers'], ...(partnerOn() ? [['shonny', pLabel("Partner's")]] : []), ['all', 'All']];
