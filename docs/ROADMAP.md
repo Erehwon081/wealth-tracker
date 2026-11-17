@@ -6,7 +6,7 @@ Every planned feature, numbered and grouped by what it does. Renumbered on 12 No
 
 Agreed in outline on 11 Nov 2026: 8, 9, then 3 alongside 7, then 23. The user chose to build 3 and 7 first (done 12 Nov 2026). Done items are struck through.
 
-Remaining: 8, 9, then 23 (it can go in any time), then 24 last, because it describes the screens and should be written once they've stopped changing. Everything marked Later comes after these, in no agreed order.
+Remaining: 9, then 23 (it can go in any time), then 24 last, because it describes the screens and should be written once they've stopped changing. Everything marked Later comes after these, in no agreed order.
 
 | # | Feature | Status |
 |---|---------|--------|
@@ -17,7 +17,7 @@ Remaining: 8, 9, then 23 (it can go in any time), then 24 last, because it descr
 | 5 | Tags across categories | Later |
 | 6 | CSV export of everything | Later |
 | ~~7~~ | ~~Add and remove spending categories~~ | Done |
-| 8 | Recurring charges you can edit | First priority |
+| ~~8~~ | ~~Recurring charges you can edit~~ | Done |
 | 9 | Safe-to-spend | First priority |
 | 10 | Cash flow forecast | Later |
 | 11 | Rollover budgets | Later |
@@ -76,7 +76,10 @@ Built in Settings > Importing > Edit spending categories: add (name, icon, colou
 - Categories are fixed in code today (`SPEND_CATS` in `app.js`), with their own icons and colours. Make the spending list editable in Settings: add (name, icon, colour), rename, hide or remove. Flow categories (income, transfers, mortgage, partner) stay fixed, because the app's maths depends on them.
 - Removing a category in use asks which category its transactions, rules and budget move to. Renaming updates them. Must stay backup-compatible: older backups use the built-in names.
 
-### 8. Recurring charges you can edit (first priority)
+### ~~8. Recurring charges you can edit~~ ✅ Done (16 Nov 2026)
+
+Built in Spending, with suggestions detected from all imported months (`www/js/recurring.js`), at the user's request.
+
 - Spending's Recurring charges card is worked out from one month's transactions and can't be changed, so it lists everyday shops (supermarkets, petrol) as recurring. Let the user add, edit and remove recurring charges (name, amount, how often, next date), with detected ones only suggested until confirmed. This is the bills list that 9 and 10 need, so build it with or before them.
 
 ### 9. Safe-to-spend (first priority)
