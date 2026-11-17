@@ -6,7 +6,7 @@ import { planReminders, DEFAULT_REMINDERS, isOurs } from './reminders.js';
 import { simulate, rateAt, rateChangeCost, sortHistory } from './loans.js';
 import { newOnly, guessAccount, findDuplicates, planReplace, parseDate, last4, detectKind, parseOfx, parseQif, readCsv, resolveMapping, applyMapping, mappingOk } from './importer.js';
 import { seedCategory } from './merchants.js';
-import { detectRecurring, chargeStatus, rollForward, perMonth, PERIODS, PERIOD_LABEL } from './recurring.js';
+import { detectRecurring, chargeStatus, rollForward, perMonth, PERIODS, PERIOD_LABEL, setAsideStatus, dueDates, monthsUntil, isSavedFor, matches } from './recurring.js';
 import { fyOf, fyLabel, fyList, fySummary, matchParcels, unitsHeld, costHeld, totalDivs, frankingCredit, parseDividendRows, taxCsv } from './tax.js';
 
 'use strict';
@@ -96,10 +96,12 @@ const DEFAULT_CONFIG = {
   mortgageShare: 0.5, childSupport: 0, everydayTarget: 5200,
   fixed: { rent: 1387, carLoan: 1081.36 },
   targets: { Groceries: 1100, 'Eating out': 450, Cafes: 150, Fuel: 650, Transport: 150, Bills: 450, Insurance: 300, Health: 200, 'Personal care': 100, Shopping: 500, Clothing: 150, 'Home & furniture': 200, Entertainment: 80, Subscriptions: 115, Services: 150, Pets: 100, Gifts: 50, Other: 100 },
-  sinking: [ { name: 'Car rego', yearly: 2694 }, { name: 'Car insurance', yearly: 1478 }, { name: 'Council rates, your half', yearly: 1050 } ],
+  sinking: [],
   rules: [], partnerName: 'Partner', partnerCards: [], partnerNames: [], rentPayees: [], priceSheets: { etf: '', stock: '', crypto: '' },
   goal: { cash: 50000 }, scenario: { sellCostPct: 2.5, breakCost: 0, leaseRentWeek: 650, leaseCostPct: 15 }
 };
+// The yearly bills older versions started with. Setups that never changed them still have these, so they're moved across too.
+const OLD_SINKING = [ { name: 'Car rego', yearly: 2694 }, { name: 'Car insurance', yearly: 1478 }, { name: 'Council rates, your half', yearly: 1050 } ];
 const cfg = () => ({ ...DEFAULT_CONFIG, ...(S.config || {}), fixed: { ...DEFAULT_CONFIG.fixed, ...(S.config?.fixed || {}) }, goal: { ...DEFAULT_CONFIG.goal, ...(S.config?.goal || {}) }, scenario: { ...DEFAULT_CONFIG.scenario, ...(S.config?.scenario || {}) }, priceSheets: { ...DEFAULT_CONFIG.priceSheets, ...(S.config?.priceSheets || {}) } });
 // Display name for the partner; categories keep their stored keys ("Partner's card" etc.) so backups stay compatible.
 // Partner features are on unless the household is set to just one person (older setups always had a partner).
@@ -176,7 +178,7 @@ function flows(m) {
   const everyday = Math.max(0, own - lumpy);
   const inTotal = income + otherIn;
   const net = inTotal - rent - car - mortgageHalf - child - own;
-  return { income, otherIn, rent, car, mortgageHalf, child, cardSpend, shonnyOnCard, own, lumpy, everyday, net, netExLumpy: net + lumpy, rate: inTotal ? net / inTotal : null, hasData: inTotal > 0 || cardSpend > 0 };
+  return { income, otherIn, rent, car, mortgageHalf, child, cardSpend, shonnyOnCard, own, lumpy, everyday, billFund: n(d.billFund), net, netExLumpy: net + lumpy, rate: inTotal ? net / inTotal : null, hasData: inTotal > 0 || cardSpend > 0 };
 }
 function payoff(balance, ratePct, payment) {
   const B = Math.abs(n(balance)), r = n(ratePct) / 100 / 12, P = n(payment);
@@ -217,7 +219,7 @@ const isInterest = (t) => /INTEREST/i.test((t.desc || '') + ' ' + (t.type || '')
 function isLumpy(t, lc = lumpyCats(), sc = null) { return t.lumpy ?? (lc.has(t.cat) || ((sc ? sc.has(t.cat) : isSpend(t.cat)) && -t.amt >= 400)); }
 function summarise(rows) {
   const s = { income: 0, otherIn: 0, rent: 0, carLoan: 0, mortgagePaid: 0, childSupport: 0, shonnyMortgage: 0, shonnyOther: 0, shonnyCard: 0, tagged: 0, spend: {}, lumpy: 0 };
-  const sc = new Set(spendCats()), lc = lumpyCats(), lk = loanAcctMap();
+  const sc = new Set(spendCats()), lc = lumpyCats(), lk = loanAcctMap(); const fund = billWords(); s.billFund = 0;
   const loanSide = { mortgage: 0, loan: 0, interest: 0, any: { mortgage: false, loan: false } };
   for (const t of rows) {
     const v = t.amt; const c = t.cat;
@@ -229,7 +231,11 @@ function summarise(rows) {
     else if (c === "Partner's card") s.shonnyCard -= v;
     // A purchase marked as the partner's counts with their card, not in your spending.
     else if (sc.has(c) && t.partner) { s.shonnyCard -= v; s.tagged -= v; }
-    else if (sc.has(c)) { s.spend[c] = (s.spend[c] || 0) - v; if (isLumpy(t, lc, sc)) s.lumpy -= v; }
+    else if (sc.has(c)) {
+      // A payment for a bill you save for comes out of the money set aside, so it counts as a one-off unless you say otherwise.
+      const forBill = v < 0 && fund.some((w) => matches(t, w)); if (forBill) s.billFund -= v;
+      s.spend[c] = (s.spend[c] || 0) - v; if (t.lumpy !== undefined ? t.lumpy : forBill || isLumpy(t, lc, sc)) s.lumpy -= v;
+    }
   }
   for (const k of Object.keys(s.spend)) s.spend[k] = Math.round(s.spend[k] * 100) / 100;
   // A repayment can show on both sides: leaving your account and arriving in the loan account. Counting both would cancel
@@ -258,7 +264,7 @@ async function applySummary(m, withBalances) {
   // Partner's share of your remaining card spending: what their transfers cover beyond the mortgage share and their card.
   // Purchases marked as theirs are already out of your spending and in their card total, so the transfers cover those first.
   const shonnyOnCard = Math.max(0, s.shonnyMortgage - half - s.shonnyCard);
-  const patch = { income: r2(s.income), otherIn: r2(s.otherIn), rent: r2(s.rent), carLoan: r2(s.carLoan), mortgagePaid: r2(s.mortgagePaid), shonnyMortgage: r2(s.shonnyMortgage), shonnyCard: r2(s.shonnyCard), shonnyTagged: r2(s.tagged), shonnyOnCard: r2(shonnyOnCard), mortgageInterest: s.mortgageInterest == null ? null : r2(s.mortgageInterest), sumV: 3, spend: s.spend, lumpy: r2(s.lumpy), txCount: rows.length, source: 'csv' };
+  const patch = { income: r2(s.income), otherIn: r2(s.otherIn), rent: r2(s.rent), carLoan: r2(s.carLoan), mortgagePaid: r2(s.mortgagePaid), shonnyMortgage: r2(s.shonnyMortgage), shonnyCard: r2(s.shonnyCard), shonnyTagged: r2(s.tagged), shonnyOnCard: r2(shonnyOnCard), mortgageInterest: s.mortgageInterest == null ? null : r2(s.mortgageInterest), billFund: r2(s.billFund), sumV: 3, spend: s.spend, lumpy: r2(s.lumpy), txCount: rows.length, source: 'csv' };
   if (s.childSupport) patch.childSupport = r2(s.childSupport);
   if (withBalances) { const dates = {}; patch.balances = { ...(prev.balances || {}), ...balancesFromRows(rows, dates) }; patch.balDates = { ...(prev.balDates || {}), ...dates }; }
   S.months[m] = { ...prev, ...patch };
@@ -491,6 +497,7 @@ function renderHome() {
   if (cur.missing.length) d.append(el('span', { class: 'muted', text: ` · no balance yet for ${cur.missing.length} account${cur.missing.length > 1 ? 's' : ''}` }));
 
   const f = flows(m); const c = cfg();
+  renderSafe($('#h-safe'), false);
   const stats = $('#h-stats'); stats.replaceChildren();
   const stat = (l, v, cls, sub, subCls) => el('div', { class: 'stat' }, el('span', { class: 'l', text: l }), el('span', { class: 'v ' + (cls || ''), text: v }), sub ? el('span', { class: 'd ' + (subCls || 'muted'), text: sub }) : null);
   const ess = n(c.fixed.rent) + n(c.fixed.carLoan) + n(c.childSupport) + (f.mortgageHalf || 0) + n(c.everydayTarget);
@@ -583,6 +590,18 @@ function recurringSuggestions(rows) {
   return detectRecurring(rows, asOf, c.recurringSkip || []).filter((x) => !mine.some((r) => r.words && (x.words.startsWith(r.words.toUpperCase()) || r.words.toUpperCase().startsWith(x.words))))
     .map((x) => ({ ...x, next: rollForward(x.next, x.every, todayIso()) }));
 }
+// Words of the bills you save for (quarterly and yearly), whose payments come out of the money set aside.
+const billWords = () => (cfg().recurring || []).filter((r) => isSavedFor(r) && r.words).map((r) => r.words);
+// The next due date, or null for a bill with no date set and no payment found yet.
+function nextDue(r, rows, today = todayIso()) { const st = chargeStatus(r, rows, today); return r.next || st.lastPaid ? st.next : null; }
+// Saving the list can change which payments count as bills you save for, so those months are worked out again.
+async function saveRecurring(list) {
+  const before = billWords(); await saveConfig({ recurring: list }); const after = billWords();
+  if (before.join('|') === after.join('|')) return;
+  await ensureAllTx(); const words = [...new Set([...before, ...after])];
+  for (const [m, rows] of Object.entries(S.tx)) if (S.months[m] && (n(S.months[m].billFund) > 0 || rows.some((t) => t.amt < 0 && words.some((w) => matches(t, w))))) await applySummary(m, false);
+  render();
+}
 let showAllRec = false;
 function renderRecurring() {
   const box = $('#s-subs'); if (!box) return;
@@ -594,7 +613,7 @@ function renderRecurring() {
   if (mine.length) {
     const items = mine.map((r) => ({ r, st: chargeStatus(r, rows, today) })).sort((a, b) => a.st.next.localeCompare(b.st.next));
     box.append(el('div', { class: 'list', id: 's-rec' }, items.map(({ r, st }) => el('div', { class: 'row tap', role: 'button', tabindex: '0', 'aria-label': `Edit ${r.name}`, onclick: () => recurringSheet(r), onkeydown: (e) => { if (e.key === 'Enter') recurringSheet(r); } },
-      el('span', {}, r.name, el('small', { class: 'cap muted', style: 'display:block', text: `${PERIOD_LABEL[r.every]} · next ${shortDate(st.next)}${st.changed ? ` · last charge was ${$2(st.changed)}` : ''}` })),
+      el('span', {}, r.name, el('small', { class: 'cap muted', style: 'display:block', text: `${PERIOD_LABEL[r.every]} · ${r.next || st.lastPaid ? 'next ' + shortDate(st.next) : 'due date not set'}${st.changed ? ` · last charge was ${$2(st.changed)}` : ''}` })),
       el('span', { class: 'num' + (st.changed ? ' wrn' : ''), text: $2(Math.abs(n(r.amount))) })))));
     box.append(el('p', { class: 'cap muted', text: `About ${$0(mine.reduce((sum, r) => sum + perMonth(r.amount, r.every), 0))} a month.${items.some((x) => x.st.changed) ? ' An amount in orange has changed: tap it to update.' : ''}` }));
   } else box.append(el('p', { class: 'cap muted', text: 'None added yet.' }));
@@ -605,27 +624,28 @@ function renderRecurring() {
     el('div', { class: 'list', id: 's-recsugg' }, shown.map((x) => el('div', { class: 'tx' },
       el('span', { class: 'desc', text: x.name }), el('span', { class: 'num', text: $2(x.amount) }),
       el('span', { class: 'meta' }, el('span', { text: `${PERIOD_LABEL[x.every]}, ${x.count} charges, last ${shortDate(x.last)}` }),
-        el('button', { class: 'pill', type: 'button', text: 'Add', 'aria-label': `Add ${x.name}`, onclick: async () => { await saveConfig({ recurring: [...(cfg().recurring || []), { id: 'r' + Date.now().toString(36), name: x.name, words: x.words, amount: x.amount, every: x.every, next: x.next }] }); toast(`Added ${x.name}`); } }),
+        el('button', { class: 'pill', type: 'button', text: 'Add', 'aria-label': `Add ${x.name}`, onclick: async () => { await saveRecurring([...(cfg().recurring || []), { id: 'r' + Date.now().toString(36), name: x.name, words: x.words, amount: x.amount, every: x.every, next: x.next }]); toast(`Added ${x.name}`); } }),
         el('button', { class: 'pill', type: 'button', text: 'Not recurring', 'aria-label': `${x.name} is not recurring`, onclick: async () => { await saveConfig({ recurringSkip: [...(cfg().recurringSkip || []), x.key] }); } }))))),
     ...(sugg.length > shown.length ? [el('div', { class: 'btns' }, el('button', { class: 'btn small', type: 'button', text: `Show all ${sugg.length}`, onclick: () => { showAllRec = true; renderRecurring(); } }))] : []));
 }
-function recurringSheet(r) {
-  const isNew = !r; const x = r ? { ...r } : { name: '', words: '', amount: '', every: 'month', next: todayIso() };
+function recurringSheet(r, preset = {}) {
+  const isNew = !r; const x = r ? { ...r } : { name: '', words: '', amount: '', every: 'month', next: '', ...preset };
   const st = r ? chargeStatus(r, recurringRows(), todayIso()) : null;
   const body = el('div', { class: 'card' },
     fieldRow('Name', null, el('input', { id: 'rc-name', class: 'plain', value: x.name, autocomplete: 'off', maxlength: '40' }), 'rc-name'),
     fieldRow('Amount', st?.lastPaid ? `Last charged ${$2(st.lastPaid.amount)} on ${shortDate(st.lastPaid.date)}` : null, moneyInput('rc-amt', x.amount, 'Amount'), 'rc-amt'),
     st?.changed ? el('div', { class: 'btns' }, el('button', { class: 'btn small', type: 'button', text: `Use ${$2(st.changed)}`, onclick: (e) => { $('#rc-amt').value = st.changed; e.currentTarget.remove(); } })) : null,
     fieldRow('How often', null, el('select', { id: 'rc-every', class: 'month-pick' }, PERIODS.map((p) => el('option', { value: p, selected: p === x.every }, PERIOD_LABEL[p]))), 'rc-every'),
-    fieldRow('Next due', null, el('input', { id: 'rc-next', class: 'plain', type: 'date', value: x.next || todayIso() }), 'rc-next'),
+    fieldRow('Next due', 'Quarterly and yearly bills are saved for: a share is set aside each month until then', el('input', { id: 'rc-next', class: 'plain', type: 'date', value: x.next || '' }), 'rc-next'),
     fieldRow('Matches transactions containing', 'So the app can find each payment and keep the next date up to date', el('input', { id: 'rc-words', class: 'plain', value: x.words || '', autocapitalize: 'characters', autocomplete: 'off', placeholder: 'e.g. NETFLIX' }), 'rc-words'),
-    isNew ? null : el('div', { class: 'btns' }, el('button', { class: 'btn small danger', type: 'button', text: 'Remove', onclick: async () => { await saveConfig({ recurring: (cfg().recurring || []).filter((y) => y.id !== r.id) }); close(); toast(`Removed ${r.name}`); } })));
+    isNew ? null : el('div', { class: 'btns' }, el('button', { class: 'btn small danger', type: 'button', text: 'Remove', onclick: async () => { close(); await saveRecurring((cfg().recurring || []).filter((y) => y.id !== r.id)); toast(`Removed ${r.name}`); } })));
   const close = sheet(isNew ? 'Add a recurring charge' : `Edit ${r.name}`, body, async () => {
     const name = $('#rc-name').value.trim(), amount = Math.abs(n($('#rc-amt').value)), next = $('#rc-next').value;
     if (!name) { toast('Give it a name'); return false; }
     if (!amount) { toast('Enter the amount'); return false; }
-    const item = { id: r?.id || 'r' + Date.now().toString(36), name, amount, every: $('#rc-every').value, next: next || todayIso(), words: $('#rc-words').value.trim().toUpperCase() };
-    await saveConfig({ recurring: isNew ? [...(cfg().recurring || []), item] : (cfg().recurring || []).map((y) => (y.id === r.id ? item : y)) });
+    const every = $('#rc-every').value; if (!next && !isSavedFor({ every })) { toast('Choose the next date it\'s due'); return false; }
+    const item = { id: r?.id || 'r' + Date.now().toString(36), name, amount, every, next: next || null, words: $('#rc-words').value.trim().toUpperCase() };
+    await saveRecurring(isNew ? [...(cfg().recurring || []), item] : (cfg().recurring || []).map((y) => (y.id === r.id ? item : y)));
   });
 }
 
@@ -721,21 +741,68 @@ async function renderSpend() {
   }
 }
 
-function renderBudget() {
-  const m = S.month; const c = cfg(); const f = flows(m); const md = S.months[m] || {};
+// What the month's pay has to cover. Used by Budget and by safe-to-spend.
+function budgetPlan(m) {
+  const c = cfg(); const f = flows(m); const today = todayIso();
   // Expected pay (from Budget > Pay) when set; otherwise this month's pay so far, or the last month that had pay.
   const expected = expectedPay(c);
   const lastPaid = sortedMonths().filter((x) => n(S.months[x].income) > 0).pop();
-  const income = expected ?? (f.income || (S.months[lastPaid]?.income ?? 0));
+  const pay = n(expected ?? (f.income || (S.months[lastPaid]?.income ?? 0)));
   const payLabel = expected != null ? 'Pay, expected' : f.income ? `Pay received in ${mLabel(m)}` : lastPaid ? `Pay received in ${mLabel(lastPaid)}` : 'Pay';
-  const sinkMonthly = (c.sinking || []).reduce((s, x) => s + n(x.yearly) / 12, 0);
-  const mortgageHalf = f.mortgageHalf || (() => { const mm = S.accounts.filter((a) => a.type === 'mortgage').reduce((s, a) => s + n(a.repayment), 0); return mm * c.mortgageShare; })();
+  const mortgageHalf = f.mortgageHalf || (() => { const mm = S.accounts.filter((a) => a.type === 'mortgage').reduce((s2, a) => s2 + n(a.repayment), 0); return mm * c.mortgageShare; })();
   const fixed = n(c.fixed.rent) + n(c.fixed.carLoan) + mortgageHalf + n(c.childSupport);
-  const left = n(income) - fixed - sinkMonthly; const tTotal = Object.values(c.targets).reduce((s, v) => s + n(v), 0);
+  const rec = c.recurring || [];
+  const setAside = rec.filter(isSavedFor).reduce((s2, r) => s2 + perMonth(r.amount, r.every), 0);
+  const bills = rec.filter((r) => !isSavedFor(r)).reduce((s2, r) => s2 + perMonth(r.amount, r.every), 0);
+  const goalsMo = (c.goals || []).reduce((s2, g) => s2 + (goalMonthly(g, today) || 0), 0);
+  return { pay, payLabel, expected, received: f.income, mortgageHalf, fixed, setAside, bills, goalsMo, left: pay - fixed - setAside - goalsMo };
+}
+const monthEnd = (m) => { const [y, mo] = m.split('-').map(Number); return `${m}-${String(new Date(Date.UTC(y, mo, 0)).getUTCDate()).padStart(2, '0')}`; };
+// Safe to spend for the rest of this month: pay, less fixed costs, the set-asides for bills and goals, what you've spent,
+// and the bills and subscriptions still due before the month ends. Payments for bills you save for come out of the set-aside.
+function safeToSpend() {
+  const m = thisMonth(); const today = todayIso(); const end = monthEnd(m);
+  const plan = budgetPlan(m); if (!plan.pay) return null;
+  const f = flows(m); const spent = Math.max(0, f.own - f.billFund);
+  const rows = recurringRows(); const due = [];
+  for (const r of cfg().recurring || []) {
+    if (isSavedFor(r)) continue;
+    const st = chargeStatus(r, rows, today); if (!r.next && !st.lastPaid) continue;
+    const amt = st.changed ?? Math.abs(n(r.amount)); for (const d of dueDates(r, st.next, end)) due.push({ name: r.name, date: d, amount: amt });
+  }
+  due.sort((a, b) => a.date.localeCompare(b.date));
+  const billsDue = due.reduce((s2, x) => s2 + x.amount, 0);
+  const safe = plan.pay - plan.fixed - plan.setAside - plan.goalsMo - spent - billsDue;
+  const daysLeft = Math.round((Date.parse(end) - Date.parse(today)) / 86400000) + 1;
+  return { ...plan, spent, due, billsDue, safe, end, daysLeft, perDay: safe / Math.max(1, daysLeft) };
+}
+function renderSafe(box, full) {
+  // Bills still due depend on the payments found so far, which need every month's transactions.
+  if (!allTxDone) ensureAllTx().then(() => { if (S.view === (full ? 'budget' : 'home')) renderSafe(box, full); });
+  const x = safeToSpend();
+  if (!x) { box.hidden = !full; if (full) box.replaceChildren(el('div', { class: 'row' }, el('h2', { text: 'Safe to spend' }), el('button', { class: 'btn small', type: 'button', text: 'Set pay', onclick: paySheet })), el('p', { class: 'cap muted', text: 'Set your pay, or import a month with pay in it, to see what you can safely spend for the rest of the month.' })); return; }
+  box.hidden = false;
+  const line = (l, v, cls) => el('div', { class: 'row', style: 'padding-block:5px' }, el('span', { class: 'cap', text: l }), el('span', { class: 'num cap ' + (cls || ''), text: v }));
+  const minus = (v) => '−' + $0(Math.abs(v)).replace('−', '');
+  box.replaceChildren(el('div', { class: 'row' }, el('h2', { text: 'Safe to spend' }), el('span', { class: 'cap muted', text: `until ${shortDate(x.end)}` })),
+    el('div', { class: 'safe-big ' + (x.safe < 0 ? 'neg' : ''), id: full ? 'b-safeamt' : 'h-safeamt', text: $0(x.safe) }),
+    el('p', { class: 'cap muted', text: x.safe > 0 ? `About ${$0(x.perDay)} a day for the ${x.daysLeft} day${x.daysLeft === 1 ? '' : 's'} left.` : `That's ${$0(-x.safe)} more than this month's plan allows.` }));
+  if (!full) { box.append(el('p', { class: 'cap muted', text: `After ${$0(x.billsDue)} of bills still due and ${$0(x.setAside + x.goalsMo)} set aside for bills and goals.` })); return; }
+  box.append(el('div', { class: 'list' },
+    line(x.payLabel, $0(x.pay)), line('Fixed costs', minus(x.fixed)), line('Set aside for bills', minus(x.setAside)),
+    x.goalsMo ? line('Saving for goals', minus(x.goalsMo)) : null,
+    line(`Spent so far in ${mLabel(thisMonth())}`, minus(x.spent)), line(`Bills still due (${x.due.length})`, minus(x.billsDue))));
+  if (x.due.length) box.append(el('p', { class: 'cap muted', text: x.due.map((d) => `${d.name} ${$0(d.amount)} on ${shortDate(d.date)}`).join(' · ') }));
+}
+function renderBudget() {
+  const m = S.month; const c = cfg(); const md = S.months[m] || {}; const p = budgetPlan(m);
+  renderSafe($('#b-safe'), true);
+  const left = p.left; const tTotal = Object.values(c.targets).reduce((s2, v) => s2 + n(v), 0);
   const top = $('#b-top'); top.replaceChildren(el('div', { class: 'row' }, el('h2', { text: 'Where your pay goes' }), el('button', { class: 'btn small', type: 'button', text: 'Set pay', onclick: paySheet })));
   const line = (l, v, cls) => el('div', { class: 'row', style: 'padding-block:6px;border-top:1px solid var(--line)' }, el('span', { text: l }), el('span', { class: 'num ' + (cls || ''), text: v }));
-  top.append(line(payLabel, $0(n(income))), ...(expected != null && f.income ? [line(`Received so far in ${mLabel(m)}`, $0(f.income), 'muted')] : []), line('Fixed costs', '−' + $0(fixed).replace('−', '')), line('Yearly bills set-aside', '−' + $0(sinkMonthly).replace('−', '')), line('Left for everyday', $0(left), left >= c.everydayTarget ? 'pos' : 'neg'), line('Everyday target', $0(c.everydayTarget)), line('Category targets add up to', $0(tTotal), tTotal > left ? 'neg' : ''));
-  top.append(el('p', { class: 'cap muted', text: left - c.everydayTarget >= 0 ? `About ${$0(left - c.everydayTarget)} a month spare at target.` : `Target is ${$0(c.everydayTarget - left)} more than you have. Lower it, or cut fixed costs.` }));
+  const minus = (v) => '−' + $0(v).replace('−', '');
+  top.append(line(p.payLabel, $0(p.pay)), ...(p.expected != null && p.received ? [line(`Received so far in ${mLabel(m)}`, $0(p.received), 'muted')] : []), line('Fixed costs', minus(p.fixed)), line('Set aside for bills', minus(p.setAside)), ...(p.goalsMo ? [line('Saving for goals', minus(p.goalsMo))] : []), line('Left for everyday', $0(left), left >= c.everydayTarget ? 'pos' : 'neg'), line('Everyday target', $0(c.everydayTarget)), line('Category targets add up to', $0(tTotal), tTotal > left ? 'neg' : ''));
+  top.append(el('p', { class: 'cap muted', text: (left - c.everydayTarget >= 0 ? `About ${$0(left - c.everydayTarget)} a month spare at target.` : `Target is ${$0(c.everydayTarget - left)} more than you have. Lower it, or cut fixed costs.`) + (p.bills ? ` Everyday includes about ${$0(p.bills)} a month of regular bills and subscriptions.` : '') }));
   const box = $('#b-cats'); box.replaceChildren();
   const actual = md.spend || {};
   for (const k of spendCats()) {
@@ -745,11 +812,11 @@ function renderBudget() {
     box.append(el('div', { class: 'catrow' + (a ? ' tap' : ''), role: a ? 'button' : null, tabindex: a ? '0' : null, 'aria-label': a ? `Show ${k} transactions` : null, onclick: a ? open : null, onkeydown: a ? (e) => { if (e.key === 'Enter') open(); } : null }, el('div', { class: 'cat-line' }, catIcon(k), el('div', { class: 'cat-body' }, el('div', { class: 'row' }, el('span', { text: k }), el('span', { class: 'num cap ' + (over ? 'neg' : 'muted'), text: `${$0(a)} of ${tgt ? $0(tgt) : 'no target'}` })), el('div', { class: 'bar' }, el('i', { class: over ? 'over' : 'cat', style: `width:${Math.min(100, ratio * 100)}%;--c:${catColor(k)}` }))))));
   }
   if (!box.children.length) box.append(el('p', { class: 'cap muted', text: 'Set targets to compare against.' }));
-  const sink = $('#b-sink'); sink.replaceChildren(el('div', { class: 'list' }, (c.sinking || []).map((x) => el('div', { class: 'row' }, el('span', { text: x.name }), el('span', { class: 'num', text: `${$0(n(x.yearly))}/yr · ${$0(n(x.yearly) / 12)}/mo` })))), el('div', { class: 'row', style: 'padding-top:8px' }, el('strong', { text: 'Set aside each month' }), el('strong', { class: 'num', text: $0(sinkMonthly) })));
+  renderBillsSaved();
   const fx = $('#b-fixed'); fx.replaceChildren(el('div', { class: 'list' },
     el('div', { class: 'row' }, el('span', { text: 'Rent' }), el('span', { class: 'num', text: $0(n(c.fixed.rent)) })),
     el('div', { class: 'row' }, el('span', { text: 'Car loan' }), el('span', { class: 'num', text: $0(n(c.fixed.carLoan)) })),
-    el('div', { class: 'row' }, el('span', { text: `Mortgage, your ${pct(c.mortgageShare)}` }), el('span', { class: 'num', text: $0(mortgageHalf) })),
+    el('div', { class: 'row' }, el('span', { text: `Mortgage, your ${pct(c.mortgageShare)}` }), el('span', { class: 'num', text: $0(p.mortgageHalf) })),
     el('div', { class: 'row' }, el('span', { text: 'Child support' }), el('span', { class: 'num', text: n(c.childSupport) ? $0(n(c.childSupport)) : 'Not started' }))));
 }
 
@@ -803,12 +870,21 @@ function renderWealth() {
   sc.append(el('div', { class: 'list' }, rows.map(([l, v, sub]) => el('div', { class: 'row' }, el('span', {}, l, el('small', { class: 'cap muted', style: 'display:block', text: sub })), el('span', { class: 'num', text: $0(v) + '/mo' })))));
   sc.append(el('p', { class: 'cap muted', text: 'Monthly housing cost to you. Rough numbers to compare options, not financial advice.' }));
 
-  // goal
-  const goal = $('#w-goal'); goal.replaceChildren();
-  const ms = sortedMonths().filter((x) => flows(x).hasData).slice(-6); const avg = ms.length ? ms.reduce((s2, x) => s2 + flows(x).netExLumpy - n(cfg().sinking.reduce((a2, y) => a2 + n(y.yearly) / 12, 0)), 0) / ms.length : 0;
-  const gap = n(c.goal.cash) - nw.liquid; const mo = avg > 0 ? Math.ceil(gap / avg) : null;
-  goal.append(el('div', { class: 'catrow' }, el('div', { class: 'row' }, el('span', { text: `${$0(nw.liquid)} of ${$0(n(c.goal.cash))}` }), el('span', { class: 'cap muted', text: pct(Math.max(0, Math.min(1, nw.liquid / n(c.goal.cash)))) })), el('div', { class: 'bar' }, el('i', { style: `width:${Math.max(0, Math.min(100, (nw.liquid / n(c.goal.cash)) * 100))}%` }))));
-  goal.append(el('p', { class: 'cap muted', text: gap <= 0 ? 'Goal reached.' : mo ? `About ${mo} months at your recent pace of ${$0(avg)} a month after yearly bills.` : 'Your recent months aren\'t saving after yearly bills, so there\'s no date yet.' }));
+  // savings goals
+  const goal = $('#w-goal'); goal.replaceChildren(); const today = todayIso();
+  const setAside = (c.recurring || []).filter(isSavedFor).reduce((s2, r) => s2 + perMonth(r.amount, r.every), 0);
+  const ms = sortedMonths().filter((x) => flows(x).hasData).slice(-6); const avg = ms.length ? ms.reduce((s2, x) => s2 + flows(x).netExLumpy - setAside, 0) / ms.length : 0;
+  const goals = c.goals || [];
+  if (!goals.length) goal.append(el('p', { class: 'cap muted', text: 'Add something you\'re saving for: an emergency fund, a holiday, a house deposit.' }));
+  for (const g of goals) {
+    const cur = goalCurrent(g), tgt = n(g.target), frac = tgt ? Math.max(0, Math.min(1, cur / tgt)) : 0, gap = tgt - cur;
+    const mo = goalMonthly(g, today); const paceMo = !g.date && avg > 0 ? Math.ceil(gap / avg) : null;
+    const [gy, gm] = (g.date || '').split('-').map(Number);
+    const sub = gap <= 0 ? 'Reached.' : g.date ? `${$0(mo)} a month to reach it by ${MONTHS[gm - 1]} ${gy}` : paceMo ? `About ${paceMo} months at your recent pace of ${$0(avg)} a month after bills` : 'Your recent months aren\'t saving after bills, so there\'s no date yet.';
+    goal.append(el('div', { class: 'catrow tap', role: 'button', tabindex: '0', 'aria-label': `Edit ${g.name}`, onclick: () => goalSheet(g), onkeydown: (e) => { if (e.key === 'Enter') goalSheet(g); } },
+      el('div', { class: 'row' }, el('span', {}, g.name, el('small', { class: 'cap muted', style: 'display:block', text: sub })), el('span', { class: 'num cap', text: `${$0(cur)} of ${$0(tgt)}` })),
+      el('div', { class: 'bar' }, el('i', { style: `width:${Math.round(frac * 100)}%` }))));
+  }
 
   // history
   const t = $('#w-hist'); t.replaceChildren();
@@ -831,10 +907,17 @@ function targetsSheet() {
   const c = cfg(); const body = el('div', { class: 'card' }, el('p', { class: 'cap muted', text: `Everyday target ${$0(c.everydayTarget)} a month. Change it in Settings.` }), ...(() => { const lc = lumpyCats(); return catList().filter((x) => !lc.has(x.name) && (!x.hidden || c.targets[x.name])).map((x) => x.name); })().map((k) => fieldRow(k, null, moneyInput('t-' + k.replace(/\W/g, ''), c.targets[k], k), 't-' + k.replace(/\W/g, ''))));
   sheet('Monthly targets', body, () => { const t = {}; for (const k of spendCats()) { const i = $('#t-' + k.replace(/\W/g, '')); if (i && i.value) t[k] = n(i.value); } return saveConfig({ targets: t }); });
 }
-function sinkSheet() {
-  const c = cfg(); const items = clone(c.sinking || []);
-  const body = el('div', { class: 'card' }); const draw = () => { body.replaceChildren(...items.map((x, i) => el('div', { class: 'field' }, el('input', { class: 'plain', value: x.name, 'aria-label': 'Bill name', oninput: (e) => { x.name = e.target.value; } }), el('div', { class: 'money' }, el('input', { type: 'text', inputmode: 'decimal', value: x.yearly, 'aria-label': 'Yearly cost', oninput: (e) => { x.yearly = n(e.target.value); } })))), el('button', { class: 'btn small', type: 'button', text: 'Add a bill', onclick: () => { items.push({ name: '', yearly: 0 }); draw(); } }), el('p', { class: 'cap muted', text: 'Clear a name to remove that bill.' })); }; draw();
-  sheet('Yearly bills', body, () => saveConfig({ sinking: items.filter((x) => x.name.trim()) }));
+// Budget's card for quarterly and yearly bills: what to put aside each month, and how far along each one is.
+function renderBillsSaved() {
+  const box = $('#b-sink'); const today = todayIso(); const rows = recurringRows();
+  const items = (cfg().recurring || []).filter(isSavedFor).map((r) => { const next = nextDue(r, rows, today); return { r, next, st: setAsideStatus(r, next, today) }; })
+    .sort((a, b) => (a.next || '9999').localeCompare(b.next || '9999'));
+  if (!items.length) { box.replaceChildren(el('p', { class: 'cap muted', text: 'Add bills that come quarterly or yearly, like rego, insurance and council rates.' })); return; }
+  box.replaceChildren(el('div', { class: 'list', id: 'b-bills' }, items.map(({ r, next, st }) => el('div', { class: 'catrow tap', role: 'button', tabindex: '0', 'aria-label': `Edit ${r.name}`, onclick: () => recurringSheet(r), onkeydown: (e) => { if (e.key === 'Enter') recurringSheet(r); } },
+    el('div', { class: 'row' }, el('span', {}, r.name, el('small', { class: 'cap muted', style: 'display:block', text: next ? `${$0(st.saved)} of ${$0(Math.abs(n(r.amount)))} put aside, due ${shortDate(next)}` : `${$0(Math.abs(n(r.amount)))} a ${r.every === 'year' ? 'year' : 'quarter'}. Tap to set the due date and track it.` })),
+      el('span', { class: 'num', text: `${$0(st.perMonth)}/mo` })),
+    next ? el('div', { class: 'bar' }, el('i', { style: `width:${Math.round(st.progress * 100)}%` })) : null))),
+    el('div', { class: 'row', style: 'padding-top:8px' }, el('strong', { text: 'Set aside each month' }), el('strong', { class: 'num', text: $0(items.reduce((s2, x) => s2 + x.st.perMonth, 0)) })));
 }
 function fixedSheet() {
   const c = cfg(); const body = el('div', { class: 'card' },
@@ -855,7 +938,36 @@ function paySheet() {
     el('p', { class: 'cap muted', text: 'Budget uses this as your monthly pay, so the plan stays steady through the month. Fortnightly and weekly pay are averaged over the year. Leave it empty to use the pay actually received.' }));
   sheet('Expected pay', body, () => { const amt = $('#pay-amt').value.trim(); return saveConfig({ expectedPay: amt ? { amount: n(amt), per: $('#pay-per').value } : null }); });
 }
-function goalSheet() { const c = cfg(); sheet('Cash goal', el('div', { class: 'card' }, fieldRow('Cash savings goal', 'Your share of cash accounts', moneyInput('g-cash', c.goal.cash, 'Goal'), 'g-cash')), () => saveConfig({ goal: { cash: n($('#g-cash').value) } })); }
+// ---------- savings goals ----------
+// config.goals: [{ id, name, target, date ('YYYY-MM' or null), source: 'cash' | 'account' | 'manual', accountId, saved }].
+// A goal with a date needs a monthly amount, which Budget and safe-to-spend set aside.
+function goalCurrent(g) {
+  const m = sortedMonths().pop() || thisMonth();
+  if (g.source === 'manual') return n(g.saved);
+  if (g.source === 'account') { const a = S.accounts.find((x) => x.id === g.accountId); const b = a && balanceFor(a, m); return b ? b.v * (a.ownerPct ?? 100) / 100 : 0; }
+  return netWorth(m).liquid;
+}
+function goalMonthly(g, today) { if (!g.date) return null; const left = n(g.target) - goalCurrent(g); return left > 0 ? left / monthsUntil(today, g.date) : 0; }
+const GOAL_SOURCES = (g) => [['cash', 'All your cash (your share)'], ...S.accounts.filter((a) => ['cash', 'offset', 'invest', 'super', 'other'].includes(a.type)).map((a) => ['acct:' + a.id, a.name]), ['manual', 'An amount I enter']];
+function goalSheet(g) {
+  const isNew = !g; const x = g ? { ...g } : { name: '', target: '', date: '', source: 'cash', saved: '' };
+  const src = el('select', { id: 'g-src', class: 'month-pick' }, GOAL_SOURCES(x).map(([v, l]) => el('option', { value: v, selected: v === (x.source === 'account' ? 'acct:' + x.accountId : x.source) }, l)));
+  const savedRow = fieldRow('Saved so far', null, moneyInput('g-saved', x.saved, 'Saved so far'), 'g-saved');
+  const sync = () => { savedRow.hidden = src.value !== 'manual'; }; src.addEventListener('change', sync); sync();
+  const body = el('div', { class: 'card' },
+    fieldRow('What for', null, el('input', { id: 'g-name', class: 'plain', value: x.name, maxlength: '40', autocomplete: 'off', placeholder: 'e.g. Holiday' }), 'g-name'),
+    fieldRow('Target', null, moneyInput('g-target', x.target, 'Target'), 'g-target'),
+    fieldRow('By', 'Optional. With a date, Budget sets aside what you need each month', el('input', { id: 'g-date', class: 'plain', type: 'month', value: x.date || '' }), 'g-date'),
+    fieldRow('Counts', 'Where the money for it is', src, 'g-src'), savedRow,
+    isNew ? null : el('div', { class: 'btns' }, el('button', { class: 'btn small danger', type: 'button', text: 'Remove', onclick: async () => { close(); await saveConfig({ goals: (cfg().goals || []).filter((y) => y.id !== g.id) }); toast(`Removed ${g.name}`); } })));
+  const close = sheet(isNew ? 'New savings goal' : `Edit ${g.name}`, body, async () => {
+    const name = $('#g-name').value.trim(), target = n($('#g-target').value);
+    if (!name) { toast('Give the goal a name'); return false; }
+    if (!target) { toast('Enter the target'); return false; }
+    const v = src.value; const item = { id: g?.id || 'g' + Date.now().toString(36), name, target, date: $('#g-date').value || null, source: v.startsWith('acct:') ? 'account' : v, accountId: v.startsWith('acct:') ? v.slice(5) : undefined, saved: v === 'manual' ? n($('#g-saved').value) : undefined };
+    await saveConfig({ goals: isNew ? [...(cfg().goals || []), item] : (cfg().goals || []).map((y) => (y.id === g.id ? item : y)) });
+  });
+}
 
 // ---------- investments ----------
 const KINDS = { etf: 'ETFs', stock: 'Shares', crypto: 'Crypto', fund: 'Managed funds' };
@@ -1524,7 +1636,7 @@ function setupSheet() {
     const partner = hh.value === 'partner';
     const accounts = SETUP_ACCOUNTS.filter((_, i) => $('#su-a' + i).checked).map(([name, type], i) => ({ id: 'a' + Date.now().toString(36) + i, name, type, ownerPct: 100, order: i, ...(type === 'invest' ? { note: 'Value comes from the Invest tab' } : {}) }));
     if (!accounts.length) { toast('Choose at least one thing to track'); return false; }
-    const config = { hasPartner: partner, partnerName: partner ? $('#su-pname').value.trim() : '', partnerCards: [], partnerNames: [], rentPayees: [], rules: [], mortgageShare: partner ? 0.5 : 1, childSupport: 0, everydayTarget: 3000, fixed: { rent: 0, carLoan: 0 }, sinking: [], goal: { cash: 10000 } };
+    const config = { hasPartner: partner, partnerName: partner ? $('#su-pname').value.trim() : '', partnerCards: [], partnerNames: [], rentPayees: [], rules: [], recurring: [], billsMoved: true, goals: [], mortgageShare: partner ? 0.5 : 1, childSupport: 0, everydayTarget: 3000, fixed: { rent: 0, carLoan: 0 }, sinking: [], goal: { cash: 10000 } };
     try { await store.replaceAll({ config, accounts, months: {}, tx: {}, holdings: [] }); } catch { toast("Couldn't save. Try again."); return false; }
     await setMeta('since', new Date().toISOString());
     await reloadAll(); S.month = thisMonth(); fillMonthPick(); go('checkin');
@@ -1868,9 +1980,11 @@ $('#c-notes').addEventListener('input', (e) => { if (S.draft) { S.draft.dirty = 
 $('#c-addacct').addEventListener('click', () => accountSheet(null));
 $('#w-add').addEventListener('click', () => accountSheet(null));
 $('#b-edit').addEventListener('click', targetsSheet);
-$('#b-sinkedit').addEventListener('click', sinkSheet);
+$('#b-sinkedit').addEventListener('click', () => recurringSheet(null, { every: 'year' }));
 $('#b-fixedit').addEventListener('click', fixedSheet);
-$('#w-goaledit').addEventListener('click', goalSheet);
+$('#w-goaledit').addEventListener('click', () => goalSheet(null));
+$('#h-safe').addEventListener('click', () => go('budget'));
+$('#h-safe').addEventListener('keydown', (e) => { if (e.key === 'Enter') go('budget'); });
 $('#i-prices').addEventListener('click', pricesSheet);
 $('#i-refresh').addEventListener('click', () => refreshFromSheet(true));
 $('#i-add').addEventListener('click', () => holdingSheet(null));
@@ -1882,10 +1996,23 @@ function onReady() {
   if (!S.month) { S.month = pickStartMonth(); }
   fillMonthPick(); playIntro($(`section[data-view="${S.view}"]`)); render(S.view !== 'checkin' || !S.draft?.dirty);
 }
+// Older setups: yearly bills (config.sinking) become yearly recurring charges, asked for their due date in Budget, and
+// the single cash goal (config.goal) becomes the first savings goal. Runs once; restoring an older backup runs it again.
+async function migrateConfig() {
+  const c = S.config; if (!c) return; let changed = false;
+  if (!c.billsMoved) {
+    const old = Array.isArray(c.sinking) ? c.sinking : OLD_SINKING;
+    const add = old.filter((x) => String(x?.name || '').trim() && n(x.yearly) > 0).map((x, i) => ({ id: 'r' + Date.now().toString(36) + i, name: x.name.trim(), amount: n(x.yearly), every: 'year', next: null, words: '' }));
+    c.recurring = [...(c.recurring || []), ...add]; c.sinking = []; c.billsMoved = true; changed = true;
+  }
+  if (!Array.isArray(c.goals)) { const cash = n((c.goal || DEFAULT_CONFIG.goal).cash); c.goals = cash > 0 ? [{ id: 'g1', name: 'Cash savings', target: cash, date: null, source: 'cash' }] : []; changed = true; }
+  if (changed) { try { await store.put('config', 'app', clone(c)); } catch {} }
+}
 async function loadState() {
   const [config, accounts, months, holdings, meta] = await Promise.all([store.get('config', 'app'), store.getAll('accounts'), store.getAll('months'), store.getAll('holdings'), store.getAll('meta')]);
   S.config = config ?? null; S.accounts = Object.values(accounts); S.months = months; S.holdings = Object.values(holdings); S.tx = {}; S.meta = meta || {};
   S.draft = null; S.catFilter = null; allTxP = null; allTxDone = false;
+  await migrateConfig();
   if (S.config?.rules?.some((r) => fixCat(r.cat) !== r.cat)) { S.config.rules = S.config.rules.map((r) => ({ ...r, cat: fixCat(r.cat) })); await store.put('config', 'app', clone(S.config)); }
   S.ready = { config: true, accounts: true, months: true };
   // Months saved before marked purchases moved to the partner's card total (v2), or before loan accounts' own transactions

@@ -41,6 +41,7 @@
       <div class="cap" id="h-nwd">&nbsp;</div>
       <div class="chart" id="h-nwchart"></div>
     </div>
+    <div class="card tap" id="h-safe" role="button" tabindex="0" aria-label="Safe to spend, open Budget" hidden></div>
     <div class="grid2 wide" id="h-stats"></div>
     <div class="card" id="h-accts" hidden></div>
     <div class="card">
@@ -85,9 +86,10 @@
 
   <!-- BUDGET -->
   <section data-view="budget" id="v-budget" hidden>
+    <div class="card" id="b-safe"></div>
     <div class="card" id="b-top"></div>
     <div class="card"><div class="row"><h2>Spending targets</h2><button class="btn small" id="b-edit" type="button">Edit targets</button></div><div id="b-cats"></div></div>
-    <div class="card"><div class="row"><h2>Yearly bills</h2><button class="btn small" id="b-sinkedit" type="button">Edit</button></div><p class="cap muted">Put this aside each month so rego, insurance and rates never land on the card in one hit.</p><div id="b-sink"></div></div>
+    <div class="card"><div class="row"><h2>Bills you save for</h2><button class="btn small" id="b-sinkedit" type="button">Add</button></div><p class="cap muted">Quarterly and yearly bills from your recurring charges. Put this aside each month so rego, insurance and rates never land on the card in one hit. Paying one comes out of this money, so it doesn't count against your everyday spending.</p><div id="b-sink"></div></div>
     <div class="card"><div class="row"><h2>Fixed costs</h2><button class="btn small" id="b-fixedit" type="button">Edit</button></div><div id="b-fixed"></div></div>
   </section>
 
@@ -109,7 +111,7 @@
     <div class="card" id="w-ledger" hidden></div>
     <div class="card"><div class="row"><h2>Accounts and loans</h2><button class="btn small" id="w-add" type="button">Add</button></div><div id="w-list"></div></div>
     <div class="card" id="w-scen"></div>
-    <div class="card"><div class="row"><h2>Cash goal</h2><button class="btn small" id="w-goaledit" type="button">Edit</button></div><div id="w-goal"></div></div>
+    <div class="card"><div class="row"><h2>Savings goals</h2><button class="btn small" id="w-goaledit" type="button">Add</button></div><div id="w-goal"></div></div>
     <div class="card"><h2>Month by month</h2><div style="overflow-x:auto"><table id="w-hist" style="border-collapse:collapse;width:100%;font-size:var(--t-cap)"></table></div></div>
   </section>
 </main>

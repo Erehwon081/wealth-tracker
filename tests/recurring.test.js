@@ -71,3 +71,19 @@ test('a confirmed charge knows its last payment and next date, and notices a pri
   assert.equal(chargeStatus({ words: 'GYM', amount: 20, every: 'fortnight', next: '2026-11-20' }, rows, '2026-11-16').next, '2026-11-20');
   assert.equal(chargeStatus({ words: 'GYM', amount: 20, every: 'fortnight', next: '2026-11-01' }, rows, '2026-11-16').next, '2026-11-29');
 });
+
+import { setAsideStatus, dueDates, monthsUntil, isSavedFor } from '../www/js/recurring.js';
+test('bills you save for: a share each month, and progress towards the due date', () => {
+  assert.ok(isSavedFor({ every: 'year' }) && isSavedFor({ every: 'quarter' }) && !isSavedFor({ every: 'month' }));
+  const s = setAsideStatus({ amount: 1200, every: 'year' }, '2027-05-17', '2026-11-17');
+  assert.equal(s.perMonth.toFixed(2), '100.00');
+  assert.ok(Math.abs(s.progress - 0.5) < 0.01 && Math.abs(s.saved - 600) < 10 && s.monthsLeft === 6, JSON.stringify(s));
+  assert.equal(setAsideStatus({ amount: 300, every: 'quarter' }, null, '2026-11-17').progress, null);
+  assert.equal(addPeriod('2026-03-31', 'month', -1), '2026-02-28');
+});
+test('what falls due before the end of the month', () => {
+  assert.deepEqual(dueDates({ every: 'week' }, '2026-11-18', '2026-11-30'), ['2026-11-18', '2026-11-25']);
+  assert.deepEqual(dueDates({ every: 'month' }, '2026-12-03', '2026-11-30'), []);
+  assert.equal(monthsUntil('2026-11-17', '2027-05-01'), 6);
+  assert.equal(monthsUntil('2026-11-17', '2026-11-30'), 1);
+});

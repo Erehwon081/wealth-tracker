@@ -10,15 +10,17 @@ const GAP = { week: [5, 9], fortnight: [12, 16], month: [26, 35], quarter: [84, 
 const MIN_COUNT = { week: 4, fortnight: 4, month: 3, quarter: 2, year: 2 };
 const DAY = 86400000;
 
-export const perMonth = (amount, every) => (Math.abs(Number(amount) || 0) * DAYS.month) / (DAYS[every] || DAYS.month);
+// Per month: a year is 12 months, 26 fortnights and 52 weeks, as on a payslip.
+const PER_MONTH = { week: 52 / 12, fortnight: 26 / 12, month: 1, quarter: 1 / 3, year: 1 / 12 };
+export const perMonth = (amount, every) => Math.abs(Number(amount) || 0) * (PER_MONTH[every] ?? 1);
 const iso = (d) => d.toISOString().slice(0, 10);
 const days = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / DAY);
 
 // The next date after `date`: a week or fortnight on, or the same day of a later month (the 31st becomes the month's last day).
-export function addPeriod(date, every) {
+export function addPeriod(date, every, times = 1) {
   const d = new Date(date + 'T00:00:00Z');
-  if (every === 'week' || every === 'fortnight') return iso(new Date(d.getTime() + (every === 'week' ? 7 : 14) * DAY));
-  const months = { month: 1, quarter: 3, year: 12 }[every] || 1;
+  if (every === 'week' || every === 'fortnight') return iso(new Date(d.getTime() + (every === 'week' ? 7 : 14) * DAY * times));
+  const months = ({ month: 1, quarter: 3, year: 12 }[every] || 1) * times;
   const y = d.getUTCFullYear(), m = d.getUTCMonth() + months, day = d.getUTCDate();
   const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
   return iso(new Date(Date.UTC(y, m, Math.min(day, last))));
@@ -102,4 +104,32 @@ export function chargeStatus(charge, rows, today) {
   next = rollForward(next, charge.every, today);
   const changed = lastPaid && Math.abs(lastPaid.amount - Math.abs(charge.amount)) > Math.max(1, Math.abs(charge.amount) * 0.05) ? lastPaid.amount : null;
   return { lastPaid, next, changed };
+}
+
+// ---------- bills you save for, and what's still due ----------
+// Quarterly and yearly bills are saved for: a share is set aside each month, and paying the bill comes out of that money.
+export const SAVED_FOR = new Set(['quarter', 'year']);
+export const isSavedFor = (charge) => SAVED_FOR.has(charge.every);
+
+// How far along the saving is for a bill due on `next`: the share of the time since the last due date that has passed.
+// Returns { perMonth, progress (0 to 1, or null with no due date), saved, monthsLeft }.
+export function setAsideStatus(charge, next, today) {
+  const amount = Math.abs(Number(charge.amount) || 0), perMo = perMonth(amount, charge.every);
+  if (!next) return { perMonth: perMo, progress: null, saved: null, monthsLeft: null };
+  const start = addPeriod(next, charge.every, -1);
+  const progress = Math.max(0, Math.min(1, days(start, today) / Math.max(1, days(start, next))));
+  return { perMonth: perMo, progress, saved: Math.round(amount * progress * 100) / 100, monthsLeft: Math.max(0, Math.round(days(today, next) / DAYS.month)) };
+}
+
+// The dates a charge falls due from `from` (its next due date, already worked out) up to and including `to`.
+export function dueDates(charge, from, to) {
+  const out = []; let d = from;
+  for (let i = 0; i < 60 && d && d <= to; i++) { out.push(d); d = addPeriod(d, charge.every); }
+  return out;
+}
+
+// Months from `today` to a goal's date, at least one, counting the current month when the date is in a later one.
+export function monthsUntil(today, date) {
+  const [y1, m1] = today.split('-').map(Number), [y2, m2] = date.split('-').map(Number);
+  return Math.max(1, (y2 - y1) * 12 + (m2 - m1));
 }

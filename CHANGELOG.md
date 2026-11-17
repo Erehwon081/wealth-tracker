@@ -4,6 +4,15 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+### Added
+- Safe to spend: one number on Home and at the top of Budget for what you can spend for the rest of the month, and about how much a day. It's your pay, less fixed costs, what's set aside for bills and savings goals, what you've already spent this month, and the bills and subscriptions still due before the month ends (listed underneath). Tap it on Home to open Budget.
+- Bills you save for: quarterly and yearly bills in your recurring charges now show in Budget with what to put aside each month and a bar for how much should be put aside by now, up to the due date. Paying one comes out of that money, so it counts as a one-off rather than everyday spending.
+- Savings goals in Wealth, in place of the single cash goal. Give each one a target, and optionally a date and where the money is (all your cash, one account, or an amount you type in). A goal with a date shows what you need to save each month, and Budget and safe to spend set that aside.
+
+### Changed
+- Your yearly bills have moved into your recurring charges as yearly charges. Open each one in Budget > Bills you save for and set its due date, and the words in its description, so the app can track it. Your cash goal is now your first savings goal.
+- Budget's "Where your pay goes" now sets aside for bills you save for and dated savings goals before working out what's left for everyday.
+
 ### Fixed
 - Not recurring now works on every suggestion. It didn't when the same payee had charges at more than one amount (two subscriptions from one company, say), so the suggestion kept coming back. Anything you already tapped Not recurring on is now hidden, and a small price change won't bring it back.
 

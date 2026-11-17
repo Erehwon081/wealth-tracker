@@ -5,6 +5,7 @@ const fs = require('fs'); const os = require('os'); const path = require('path')
 const BASE = process.env.BASE || 'http://127.0.0.1:8765/';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wt-e2e-'));
 let failed = 0;
+const n0z = (v) => Number(v) || 0;
 const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!cond) failed++; };
 
 (async () => {
@@ -590,7 +591,7 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   await rp.goto(BASE); await rp.waitForTimeout(600); await rp.click('text=Load sample data'); await rp.waitForTimeout(800);
   const recLines = []; const amts = [83.2, 141.7, 56.9, 210.4, 97.3, 64.1, 172.8, 119.5, 45.6, 188.2, 133.9, 76.4, 152.3, 61.8, 99.9, 230.1, 71.2, 126.4, 49.5, 167.7, 112.6, 88.8, 201.3, 58.4];
   ['06', '07', '08', '09', '10', '11'].forEach((m, mi) => {
-    recLines.push(`<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>2026${m}03<TRNAMT>${m === '11' ? '-24.99' : '-22.99'}<NAME>NETFLIX.COM SYDNEY`);
+    recLines.push(`<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>2026${m}03<TRNAMT>${m === '11' ? '-24.99' : '-22.99'}<NAME>DISNEY PLUS SYDNEY`);
     recLines.push(`<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>2026${m}12<TRNAMT>-11.99<NAME>SPOTIFY P0A1B2C3`);
     recLines.push(`<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>2026${m}01<TRNAMT>-4.49<NAME>APPLE.COM/BILL`, `<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>2026${m}14<TRNAMT>-12.99<NAME>APPLE.COM/BILL`);
     ['02', '09', '16', '23'].forEach((d, i) => recLines.push(`<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>2026${m}${d}<TRNAMT>-${amts[mi * 4 + i]}<NAME>WOOLWORTHS 1234 RICHMOND`));
@@ -601,7 +602,7 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   const [rfc] = await Promise.all([rp.waitForEvent('filechooser'), rp.click('#v-checkin [data-pick=csvIn]')]); await rfc.setFiles(recOfx); await rp.waitForTimeout(1200);
   await rp.click('.tab[data-tab=spend]'); await rp.waitForTimeout(900);
   const sugg = await rp.textContent('#s-recsugg');
-  ok(sugg.includes('NETFLIX') && sugg.includes('SPOTIFY') && sugg.includes('Monthly, 6 charges') && !sugg.includes('WOOLWORTHS'), 'regular charges are suggested and the weekly supermarket shop is not ' + sugg.slice(0, 200));
+  ok(sugg.includes('DISNEY') && sugg.includes('SPOTIFY') && sugg.includes('Monthly, 6 charges') && !sugg.includes('WOOLWORTHS'), 'regular charges are suggested and the weekly supermarket shop is not ' + sugg.slice(0, 200));
   await rp.click('#s-recsugg button[aria-label="SPOTIFY is not recurring"]'); await rp.waitForTimeout(500);
   ok(!(await rp.textContent('#s-subs')).includes('SPOTIFY'), 'Not recurring removes a suggestion');
   // one payee, two subscriptions: turning one down keeps the other
@@ -609,25 +610,83 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   await rp.locator('#s-recsugg .tx', { hasText: '$4.49' }).locator('button:text-is("Not recurring")').click(); await rp.waitForTimeout(500);
   const appleLeft = await rp.locator('#s-recsugg .tx', { hasText: 'APPLE' }).allTextContents();
   ok(appleLeft.length === 1 && appleLeft[0].includes('$12.99'), 'Not recurring works on one of two charges from the same payee ' + JSON.stringify(appleLeft));
-  await rp.click('#s-recsugg button[aria-label^="Add NETFLIX"]'); await rp.waitForTimeout(600);
+  await rp.click('#s-recsugg button[aria-label^="Add DISNEY"]'); await rp.waitForTimeout(600);
   const rec = await rp.textContent('#s-rec');
-  ok(rec.includes('NETFLIX') && rec.includes('Monthly · next 3 ') && rec.includes('last charge was $24.99'), 'an added suggestion is listed with its next date, and the price rise is noticed ' + rec);
-  ok(!(await rp.locator('#s-recsugg').count()) || !(await rp.textContent('#s-recsugg')).includes('NETFLIX'), 'an added charge is no longer suggested');
+  ok(rec.includes('DISNEY') && rec.includes('Monthly · next 3 ') && rec.includes('last charge was $24.99'), 'an added suggestion is listed with its next date, and the price rise is noticed ' + rec);
+  ok(!(await rp.locator('#s-recsugg').count()) || !(await rp.textContent('#s-recsugg')).includes('DISNEY'), 'an added charge is no longer suggested');
   ok(!(await rp.textContent('#s-subs')).includes('null'), 'nothing stray in the recurring card');
-  await rp.click('#s-rec [aria-label^="Edit NETFLIX"]'); await rp.waitForTimeout(300); await rp.click('.sheet button:text-is("Use $24.99")');
+  await rp.click('#s-rec [aria-label^="Edit DISNEY"]'); await rp.waitForTimeout(300); await rp.click('.sheet button:text-is("Use $24.99")');
   await rp.click('.sheet-bg:last-child .btn.primary'); await rp.waitForTimeout(500);
-  ok((await rp.textContent('#s-rec')).includes('$24.99') && !(await rp.textContent('#s-rec')).includes('last charge was'), 'Use the new amount updates the charge');
+  const disneyRow = await rp.locator('#s-rec .row', { hasText: 'DISNEY' }).textContent();
+  ok(disneyRow.includes('$24.99') && !disneyRow.includes('last charge was'), 'Use the new amount updates the charge ' + disneyRow);
+  const totalOf = async () => n0((await rp.textContent('#s-subs')).match(/About \$([\d,]+) a month/)[1]);
+  const n0 = (x) => Number(String(x).replace(/,/g, ''));
+  const totalBefore = await totalOf();
   await rp.click('#s-subs button:text-is("Add")'); await rp.waitForTimeout(300);
-  await rp.fill('#rc-name', 'Gym'); await rp.fill('#rc-amt', '20'); await rp.selectOption('#rc-every', 'fortnight'); await rp.fill('#rc-next', '2030-01-10');
+  await rp.fill('#rc-name', 'Swim school'); await rp.fill('#rc-amt', '20'); await rp.selectOption('#rc-every', 'fortnight'); await rp.fill('#rc-next', '2030-01-10');
   await rp.click('.sheet-bg:last-child .btn.primary'); await rp.waitForTimeout(500);
   const rec2 = await rp.textContent('#s-rec');
-  ok(rec2.includes('Gym') && rec2.includes('Fortnightly · next 10 Jan 2030') && (await rp.textContent('#s-subs')).includes('About $68 a month'), 'a charge added by hand is listed, with the monthly total ' + (await rp.textContent('#s-subs')).slice(0, 300));
-  await rp.click('#s-rec [aria-label="Edit Gym"]'); await rp.waitForTimeout(300); await rp.click('.sheet button:text-is("Remove")'); await rp.waitForTimeout(500);
+  ok(rec2.includes('Swim school') && rec2.includes('Fortnightly · next 10 Jan 2030') && Math.abs((await totalOf()) - totalBefore - 43) <= 1, 'a charge added by hand is listed, and adds to the monthly total ' + (await rp.textContent('#s-subs')).slice(0, 300));
+  await rp.click('#s-rec [aria-label="Edit Swim school"]'); await rp.waitForTimeout(300); await rp.click('.sheet button:text-is("Remove")'); await rp.waitForTimeout(500);
   await rp.reload(); await rp.waitForTimeout(900); await rp.click('.tab[data-tab=spend]'); await rp.waitForTimeout(900);
   const recAfter = await rp.textContent('#s-subs');
-  ok(recAfter.includes('NETFLIX') && !recAfter.includes('Gym') && !recAfter.includes('SPOTIFY') && !recAfter.includes('$4.49'), 'recurring charges and turned-down suggestions survive a reload');
+  ok(recAfter.includes('DISNEY') && !recAfter.includes('Fortnightly · next 10 Jan 2030') && !recAfter.includes('SPOTIFY') && !recAfter.includes('$4.49'), 'recurring charges and turned-down suggestions survive a reload');
   ok(rerrors.length === 0, 'no page errors with recurring charges ' + JSON.stringify(rerrors));
   await rctx.close();
+  {
+  // Bills you save for, safe to spend and savings goals; older yearly bills and the cash goal move across
+  const sctx = await browser.newContext({ ...devices['Pixel 7'] });
+  const bp = await sctx.newPage(); const serrors = []; bp.on('pageerror', (e) => serrors.push(e.message));
+  const sdb = (st, key) => bp.evaluate(async ([st, key]) => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); }); return new Promise((res) => { const q = db.transaction(st).objectStore(st).get(key); q.onsuccess = () => res(q.result); }); }, [st, key]);
+  await bp.goto(BASE); await bp.waitForTimeout(600); await bp.click('text=Load sample data'); await bp.waitForTimeout(800);
+  // make the config look like an older version's: yearly bills and one cash goal
+  await bp.evaluate(async () => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); });
+    const c = await new Promise((res) => { const q = db.transaction('config').objectStore('config').get('app'); q.onsuccess = () => res(q.result); });
+    delete c.recurring; delete c.goals; delete c.billsMoved; c.sinking = [{ name: 'Car rego', yearly: 1200 }, { name: 'Home insurance', yearly: 960 }]; c.goal = { cash: 30000 };
+    await new Promise((res) => { const t = db.transaction('config', 'readwrite'); t.objectStore('config').put(c, 'app'); t.oncomplete = res; }); });
+  await bp.reload(); await bp.waitForTimeout(900);
+  const mc = await sdb('config', 'app');
+  ok(mc.billsMoved && mc.recurring.length === 2 && mc.recurring.every((r) => r.every === 'year' && !r.next) && mc.sinking.length === 0, 'older yearly bills move into the recurring list as yearly charges ' + JSON.stringify(mc.recurring));
+  ok(mc.goals.length === 1 && mc.goals[0].target === 30000 && mc.goals[0].source === 'cash', 'the older cash goal becomes the first savings goal');
+  await bp.click('.tab[data-tab=budget]'); await bp.waitForTimeout(600);
+  const bills0 = await bp.textContent('#b-sink');
+  ok(bills0.includes('Car rego') && bills0.includes('Tap to set the due date') && bills0.includes('$100/mo') && bills0.includes('$180'), 'Budget lists bills you save for, a share each month ' + bills0.slice(0, 200));
+  await bp.click('#b-bills [aria-label="Edit Car rego"]'); await bp.waitForTimeout(300);
+  await bp.fill('#rc-next', '2027-05-17'); await bp.fill('#rc-words', 'VICROADS'); await bp.click('.sheet-bg:last-child .btn.primary'); await bp.waitForTimeout(800);
+  const rego = await bp.locator('#b-bills .catrow', { hasText: 'Car rego' }).textContent();
+  ok(/\$\d+ of \$1,200 put aside, due 17 May/.test(rego) && await bp.locator('#b-bills .catrow', { hasText: 'Car rego' }).locator('.bar i').count() === 1, 'with a due date, the bill shows how much should be put aside by now ' + rego);
+  // a rego payment this month comes out of the set-aside, not everyday spending
+  const nov0 = await sdb('months', '2026-11');
+  const regoOfx = path.join(tmp, 'rego.ofx');
+  fs.writeFileSync(regoOfx, 'OFXHEADER:100\n<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><BANKACCTFROM><ACCTID>12341111</BANKACCTFROM><BANKTRANLIST>\n<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261105<TRNAMT>-180.00<NAME>VICROADS REGO RENEWAL\n<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261106<TRNAMT>-42.00<NAME>CORNER CAFE\n</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>\n');
+  await bp.click('.tab[data-tab=checkin]'); await bp.waitForTimeout(300);
+  const [sfc] = await Promise.all([bp.waitForEvent('filechooser'), bp.click('#v-checkin [data-pick=csvIn]')]); await sfc.setFiles(regoOfx); await bp.waitForTimeout(1200);
+  const nov1 = await sdb('months', '2026-11');
+  ok(nov1.billFund === 180 && Math.abs((nov1.lumpy - n0z(nov0.lumpy)) - 180) < 0.01, `a payment for a bill you save for counts as a one-off, paid from the set-aside (${nov1.billFund}, ${nov1.lumpy})`);
+  // safe to spend adds up
+  await bp.click('.tab[data-tab=budget]'); await bp.waitForTimeout(800);
+  const safeTxt = await bp.textContent('#b-safe');
+  const nums = await bp.$$eval('#b-safe .list .row .num', (els) => els.map((e) => Number(e.textContent.replace(/[^0-9.]/g, '')) * (e.textContent.includes('−') ? -1 : 1)));
+  const safeAmt = await bp.$eval('#b-safeamt', (e) => Number(e.textContent.replace(/[^0-9.]/g, '')) * (e.textContent.includes('−') ? -1 : 1));
+  ok(safeTxt.includes('Safe to spend') && safeTxt.includes('until 30 Nov') && safeTxt.includes('Bills still due') && Math.abs(nums.reduce((a, b) => a + b, 0) - safeAmt) <= nums.length, `safe to spend is pay less fixed costs, set-asides, spending and bills still due (${nums} = ${safeAmt})`);
+  await bp.click('.tab[data-tab=home]'); await bp.waitForTimeout(800);
+  ok(await bp.isVisible('#h-safe') && (await bp.textContent('#h-safe')).includes('Safe to spend') && /\$[\d,]+/.test(await bp.textContent('#h-safeamt')), 'Home shows safe to spend');
+  await bp.click('#h-safe'); await bp.waitForTimeout(500);
+  ok(await bp.evaluate(() => location.hash) === '#budget', 'tapping it opens Budget');
+  // a goal with a date sets aside what it needs each month
+  await bp.click('.tab[data-tab=wealth]'); await bp.waitForTimeout(600);
+  ok((await bp.textContent('#w-goal')).includes('Cash savings'), 'Wealth lists the savings goals');
+  await bp.click('#w-goaledit'); await bp.waitForTimeout(300);
+  await bp.fill('#g-name', 'Holiday'); await bp.fill('#g-target', '3000'); await bp.fill('#g-date', '2027-05'); await bp.selectOption('#g-src', 'manual'); await bp.fill('#g-saved', '600');
+  await bp.click('.sheet-bg:last-child .btn.primary'); await bp.waitForTimeout(600);
+  const gl = await bp.locator('#w-goal .catrow', { hasText: 'Holiday' }).textContent();
+  ok(gl.includes('$600 of $3,000') && gl.includes('$400 a month to reach it by May 2027'), 'a goal with a date shows the monthly amount needed ' + gl);
+  await bp.click('.tab[data-tab=budget]'); await bp.waitForTimeout(600);
+  ok((await bp.locator('#b-top .row', { hasText: 'Saving for goals' }).textContent()).includes('400'), 'Budget sets aside the goal\'s monthly amount');
+  ok((await bp.locator('#b-safe .row', { hasText: 'Saving for goals' }).textContent()).includes('400'), 'and so does safe to spend');
+  ok(serrors.length === 0, 'no page errors with bills, safe to spend and goals ' + JSON.stringify(serrors));
+  await sctx.close();
+  }
   await browser.close();
   console.log(failed ? `${failed} failed` : 'all passed');
   process.exit(failed ? 1 : 0);
