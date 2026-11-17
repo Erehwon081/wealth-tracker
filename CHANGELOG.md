@@ -4,6 +4,8 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+## 1.0.37 (17 Nov 2026)
+
 ### Added
 - Recurring charges are now a list you control, in Spending. Add your bills and subscriptions with their amount, how often they come (weekly to yearly) and the next date. Each one shows when it's next due, and the card adds them up to a monthly total.
 - The app suggests recurring charges it finds in your transactions: the same payee, a similar amount, at regular times, and still going. Add the ones that are bills or subscriptions, or tap Not recurring and it won't suggest that one again. Everyday shops like the supermarket or petrol aren't suggested just because you go often.
