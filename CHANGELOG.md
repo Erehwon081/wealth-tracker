@@ -4,6 +4,8 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+## 1.0.38 (17 Nov 2026)
+
 ### Added
 - Safe to spend: one number on Home and at the top of Budget for what you can spend for the rest of the month, and about how much a day. It's your pay, less fixed costs, what's set aside for bills and savings goals, what you've already spent this month, and the bills and subscriptions still due before the month ends (listed underneath). Tap it on Home to open Budget.
 - Bills you save for: quarterly and yearly bills in your recurring charges now show in Budget with what to put aside each month and a bar for how much should be put aside by now, up to the due date. Paying one comes out of that money, so it counts as a one-off rather than everyday spending.
