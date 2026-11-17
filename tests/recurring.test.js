@@ -40,7 +40,7 @@ test('finds regular charges and leaves everyday shopping alone', () => {
   // one shop billing two subscriptions
   for (const m of ['08', '09', '10', '11']) rows.push(tx(`2026-${m}-01`, -4.49, 'APPLE.COM/BILL'), tx(`2026-${m}-12`, -12.99, 'APPLE.COM/BILL'));
   const found = detectRecurring(rows, '2026-12-08');
-  const by = Object.fromEntries(found.map((f) => [f.key, f]));
+  const by = Object.fromEntries(found.map((f) => [f.words, f]));
   const keys = found.map((f) => f.key);
   assert.deepEqual([by['NETFLIX SYDNEY'].every, by['NETFLIX SYDNEY'].amount, by['NETFLIX SYDNEY'].last, by['NETFLIX SYDNEY'].next], ['month', 22.99, '2026-11-03', '2027-01-03']);
   assert.equal(by['TELSTRA MOBILE'].every, 'month');
@@ -50,8 +50,15 @@ test('finds regular charges and leaves everyday shopping alone', () => {
   assert.ok(!keys.some((k) => k.startsWith('WOOLWORTHS')), 'supermarket is not recurring');
   assert.ok(!keys.some((k) => k.startsWith('BP')), 'petrol is not recurring');
   assert.ok(!keys.some((k) => k.startsWith('FITNESS')), 'a stopped charge is not suggested');
-  assert.ok(!detectRecurring(rows, '2026-12-08', ['NETFLIX SYDNEY']).some((f) => f.key === 'NETFLIX SYDNEY'), 'dismissed ones are skipped');
-  assert.equal(found[0].key, 'TELSTRA MOBILE'); // most expensive per month first: $89.50 a month beats $819 a year
+  assert.ok(!detectRecurring(rows, '2026-12-08', ['NETFLIX SYDNEY']).some((f) => f.words === 'NETFLIX SYDNEY'), 'a payee turned down without an amount is skipped');
+  // turning down one of two subscriptions from the same payee keeps the other, and the key it saves works
+  const apple = found.filter((f) => f.words === 'APPLE BILL'); assert.equal(apple.length, 2);
+  const left = detectRecurring(rows, '2026-12-08', [apple[0].key]).filter((f) => f.words === 'APPLE BILL');
+  assert.deepEqual(left.map((f) => f.amount), [apple[1].amount]);
+  // older saved keys with a rounded amount still work, and a small price rise doesn't bring it back
+  assert.equal(detectRecurring(rows, '2026-12-08', ['APPLE BILL 13']).filter((f) => f.words === 'APPLE BILL').length, 1);
+  assert.ok(!detectRecurring(rows, '2026-12-08', ['NETFLIX SYDNEY 21.5']).some((f) => f.words === 'NETFLIX SYDNEY'));
+  assert.equal(found[0].words, 'TELSTRA MOBILE'); // most expensive per month first: $89.50 a month beats $819 a year
 });
 
 test('a confirmed charge knows its last payment and next date, and notices a price change', () => {
@@ -63,4 +70,20 @@ test('a confirmed charge knows its last payment and next date, and notices a pri
   // nothing paid yet: the next date set by hand stands, rolled on if it has passed
   assert.equal(chargeStatus({ words: 'GYM', amount: 20, every: 'fortnight', next: '2026-11-20' }, rows, '2026-11-16').next, '2026-11-20');
   assert.equal(chargeStatus({ words: 'GYM', amount: 20, every: 'fortnight', next: '2026-11-01' }, rows, '2026-11-16').next, '2026-11-29');
+});
+
+import { setAsideStatus, dueDates, monthsUntil, isSavedFor } from '../www/js/recurring.js';
+test('bills you save for: a share each month, and progress towards the due date', () => {
+  assert.ok(isSavedFor({ every: 'year' }) && isSavedFor({ every: 'quarter' }) && !isSavedFor({ every: 'month' }));
+  const s = setAsideStatus({ amount: 1200, every: 'year' }, '2027-05-17', '2026-11-17');
+  assert.equal(s.perMonth.toFixed(2), '100.00');
+  assert.ok(Math.abs(s.progress - 0.5) < 0.01 && Math.abs(s.saved - 600) < 10 && s.monthsLeft === 6, JSON.stringify(s));
+  assert.equal(setAsideStatus({ amount: 300, every: 'quarter' }, null, '2026-11-17').progress, null);
+  assert.equal(addPeriod('2026-03-31', 'month', -1), '2026-02-28');
+});
+test('what falls due before the end of the month', () => {
+  assert.deepEqual(dueDates({ every: 'week' }, '2026-11-18', '2026-11-30'), ['2026-11-18', '2026-11-25']);
+  assert.deepEqual(dueDates({ every: 'month' }, '2026-12-03', '2026-11-30'), []);
+  assert.equal(monthsUntil('2026-11-17', '2027-05-01'), 6);
+  assert.equal(monthsUntil('2026-11-17', '2026-11-30'), 1);
 });

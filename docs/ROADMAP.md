@@ -6,7 +6,7 @@ Every planned feature, numbered and grouped by what it does. Renumbered on 12 No
 
 Agreed in outline on 11 Nov 2026: 8, 9, then 3 alongside 7, then 23. The user chose to build 3 and 7 first (done 12 Nov 2026). Done items are struck through.
 
-Remaining: 9, then 23 (it can go in any time), then 24 last, because it describes the screens and should be written once they've stopped changing. Everything marked Later comes after these, in no agreed order.
+Remaining: 23 (it can go in any time), then 24 last, because it describes the screens and should be written once they've stopped changing. Everything marked Later comes after these, in no agreed order.
 
 | # | Feature | Status |
 |---|---------|--------|
@@ -18,11 +18,11 @@ Remaining: 9, then 23 (it can go in any time), then 24 last, because it describe
 | 6 | CSV export of everything | Later |
 | ~~7~~ | ~~Add and remove spending categories~~ | Done |
 | ~~8~~ | ~~Recurring charges you can edit~~ | Done |
-| 9 | Safe-to-spend | First priority |
+| ~~9~~ | ~~Safe-to-spend~~ | Done |
 | 10 | Cash flow forecast | Later |
 | 11 | Rollover budgets | Later |
-| 12 | Savings goals | Later |
-| ~~13~~ | ~~Bills and set-asides~~ | Cancelled |
+| ~~12~~ | ~~Savings goals~~ | Done |
+| ~~13~~ | ~~Bills and set-asides~~ | Mostly built into 8, 9 and 12 |
 | ~~14~~ | ~~Account balances view~~ | Done |
 | 15 | Year in review | Later |
 | 16 | Home screen widget | Later |
@@ -82,7 +82,10 @@ Built in Spending, with suggestions detected from all imported months (`www/js/r
 
 - Spending's Recurring charges card is worked out from one month's transactions and can't be changed, so it lists everyday shops (supermarkets, petrol) as recurring. Let the user add, edit and remove recurring charges (name, amount, how often, next date), with detected ones only suggested until confirmed. This is the bills list that 9 and 10 need, so build it with or before them.
 
-### 9. Safe-to-spend (first priority)
+### ~~9. Safe-to-spend~~ ✅ Done (17 Nov 2026)
+
+Built on Home and Budget. The user asked for the bills and set-asides parts (13) and savings goals (12) in the same release: yearly bills became yearly recurring charges with set-aside progress, and the cash goal became a list of goals.
+
 - One number: what's left this month after bills, set-asides and savings. It needs the bills list from 8, which overlaps the cancelled 13: agree with the user how much of that it needs, for example recurring charges detected from imports, without the sinking-fund screens.
 
 ### 10. Cash flow forecast (later)
@@ -91,7 +94,7 @@ Built in Spending, with suggestions detected from all imported months (`www/js/r
 ### 11. Rollover budgets (later)
 - Money not spent in a category carries into next month. Overlaps 13's sinking funds.
 
-### 12. Savings goals (later)
+### ~~12. Savings goals~~ ✅ Done (17 Nov 2026), with safe-to-spend
 - A target, a date and the monthly amount needed. Also part of the cancelled 13.
 
 ### 13. ~~Bills and set-asides~~ (was 2) Cancelled
