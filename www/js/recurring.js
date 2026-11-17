@@ -49,11 +49,14 @@ const median = (xs) => { const s = [...xs].sort((a, b) => a - b); const i = s.le
 //   asOf: the newest date the data covers. skip: payee keys already confirmed or dismissed.
 // Returns [{ key, name, words, amount, every, next, last, count }], most expensive per month first.
 export function detectRecurring(rows, asOf, skip = []) {
-  const skipSet = new Set(skip.map((k) => String(k).toUpperCase()));
+  // A turned-down suggestion is saved as its payee and amount ("NETFLIX SYDNEY 22.99"); a payee alone turns down all of it.
+  // The amount allows the same 15% as grouping, so a small price change doesn't bring it back.
+  const skips = skip.map((k) => { const m = String(k).toUpperCase().trim().match(/^(.*?)(?: (\d+(?:\.\d+)?))?$/); return { payee: m[1], amount: m[2] == null ? null : Number(m[2]) }; });
+  const skipped = (payee, amount) => skips.some((x) => x.payee === payee && (x.amount == null || Math.abs(x.amount - amount) <= Math.max(2, x.amount * 0.15)));
   const groups = new Map();
   for (const t of rows || []) {
     if (!(Number(t.amt) < 0) || !t.date) continue;
-    const key = payeeKey(t); if (key.length < 3 || skipSet.has(key)) continue;
+    const key = payeeKey(t); if (key.length < 3 || skipped(key, Infinity)) continue;
     if (!groups.has(key)) groups.set(key, []); groups.get(key).push(t);
   }
   const out = [];
@@ -73,6 +76,7 @@ export function detectRecurring(rows, asOf, skip = []) {
       // Most gaps fit the period; a missed or doubled-up month here and there is fine.
       const fit = gaps.filter((x) => x >= GAP[every][0] && x <= GAP[every][1]).length / gaps.length; if (fit < 0.7) continue;
       const amts = c.rows.map((t) => Math.abs(t.amt)); const amount = median(amts);
+      if (skipped(key, amount)) continue;
       if (amts.filter((a) => Math.abs(a - amount) <= Math.max(2, amount * 0.15)).length / amts.length < 0.75) continue;
       const last = dates[dates.length - 1];
       if (days(last, asOf) > DAYS[every] * 1.6 + 3) continue; // stopped: no charge for longer than it should take
@@ -81,7 +85,7 @@ export function detectRecurring(rows, asOf, skip = []) {
       const words = String(latest.merchant || latest.desc || '').replace(/\s{2,}.*$/, '').split(/\s+/); const keep = [];
       for (const w of words) { if (/\d/.test(w) || /^(CARD|AUS)$/i.test(w) || keep.length >= 4) break; keep.push(w); }
       const name = keep.join(' ').slice(0, 40) || key;
-      out.push({ key: clusters.length > 1 ? `${key} ${Math.round(amount)}` : key, words: key, name, amount: Math.round(amount * 100) / 100, every, last, next: rollForward(addPeriod(last, every), every, asOf), count: dates.length });
+      out.push({ key: `${key} ${Math.round(amount * 100) / 100}`, words: key, name, amount: Math.round(amount * 100) / 100, every, last, next: rollForward(addPeriod(last, every), every, asOf), count: dates.length });
     }
   }
   return out.sort((a, b) => perMonth(b.amount, b.every) - perMonth(a.amount, a.every));

@@ -4,6 +4,9 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+### Fixed
+- Not recurring now works on every suggestion. It didn't when the same payee had charges at more than one amount (two subscriptions from one company, say), so the suggestion kept coming back. Anything you already tapped Not recurring on is now hidden, and a small price change won't bring it back.
+
 ## 1.0.37 (17 Nov 2026)
 
 ### Added

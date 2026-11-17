@@ -54,7 +54,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 - **Review flag is `t.review: true`** on imported rows (and carried by Replace with a fresh import); no flag means reviewed, so existing data needed no migration.
 
 ### Recurring charges (roadmap 8)
-- **`config.recurring` [{id, name, words, amount, every, next}]**, `every` one of week, fortnight, month, quarter, year. `config.recurringSkip` holds payee keys the user said aren't recurring. Both are in backups with the rest of config.
+- **`config.recurring` [{id, name, words, amount, every, next}]**, `every` one of week, fortnight, month, quarter, year. `config.recurringSkip` holds turned-down suggestions as payee plus amount (`NETFLIX SYDNEY 22.99`), matched within 15%; a payee alone turns down all its charges. (1.0.37 saved an amount only when a payee had several amount groups but compared payee only, so Not recurring failed for those.) Both are in backups with the rest of config.
 - **Detection (`detectRecurring` in `www/js/recurring.js`)** looks at outgoing spending-category rows across all months (loan accounts left out). Group by `payeeKey` (first two words, no digits, card words or payment prefixes), split each payee by amount (within 15%), then the median gap picks the period. Needs: most gaps (70%) in the period's range, most amounts (75%) within 15% or $2 of the median, 3 charges for monthly (4 weekly/fortnightly, 2 quarterly/yearly), a charge within 1.6 periods of the newest data, and the pattern being at least a third of that payee's purchases. That last rule stops a supermarket throwing up chance pairs.
 - **A confirmed charge finds its payments by `words`** (cleaned like the payee key). `chargeStatus` gives the last payment, the next date (a payment from 5 days before the due date counts as paying it), and flags an amount more than 5% or $1 off.
 - **Safe-to-spend (9) should read `config.recurring`** for the bills still due this month.
@@ -95,6 +95,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 
 ## Log
 
+- **17 Nov 2026**: Fixed Not recurring for payees with charges at more than one amount (user report).
 - **16 Nov 2026**: Built roadmap 8 (recurring charges you can edit), with suggestions detected from the transactions as the user asked. Next: 9, safe-to-spend.
 - **12 Nov 2026**: House ledger reads loan accounts' own transactions for repayments and actual interest; partner share is 50% of repayments; loan rows no longer count as income or spending (1.0.35 follow-up).
 - **12 Nov 2026**: Built roadmap 3 (review queue) and 7 (editable spending categories). Marking a purchase as the partner's now moves it to their card total. Fixed duplicates from one card imported under two keys. QIF imports name the account they went to, with Wrong account? to move them; the user's duplicates were QIFs misfiled to another account. Done roadmap items are struck through.

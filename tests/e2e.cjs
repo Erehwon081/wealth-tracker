@@ -592,6 +592,7 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   ['06', '07', '08', '09', '10', '11'].forEach((m, mi) => {
     recLines.push(`<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>2026${m}03<TRNAMT>${m === '11' ? '-24.99' : '-22.99'}<NAME>NETFLIX.COM SYDNEY`);
     recLines.push(`<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>2026${m}12<TRNAMT>-11.99<NAME>SPOTIFY P0A1B2C3`);
+    recLines.push(`<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>2026${m}01<TRNAMT>-4.49<NAME>APPLE.COM/BILL`, `<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>2026${m}14<TRNAMT>-12.99<NAME>APPLE.COM/BILL`);
     ['02', '09', '16', '23'].forEach((d, i) => recLines.push(`<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>2026${m}${d}<TRNAMT>-${amts[mi * 4 + i]}<NAME>WOOLWORTHS 1234 RICHMOND`));
   });
   const recOfx = path.join(tmp, 'recurring.ofx');
@@ -603,6 +604,11 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   ok(sugg.includes('NETFLIX') && sugg.includes('SPOTIFY') && sugg.includes('Monthly, 6 charges') && !sugg.includes('WOOLWORTHS'), 'regular charges are suggested and the weekly supermarket shop is not ' + sugg.slice(0, 200));
   await rp.click('#s-recsugg button[aria-label="SPOTIFY is not recurring"]'); await rp.waitForTimeout(500);
   ok(!(await rp.textContent('#s-subs')).includes('SPOTIFY'), 'Not recurring removes a suggestion');
+  // one payee, two subscriptions: turning one down keeps the other
+  if (await rp.locator('#s-subs button:has-text("Show all")').count()) { await rp.click('#s-subs button:has-text("Show all")'); await rp.waitForTimeout(300); }
+  await rp.locator('#s-recsugg .tx', { hasText: '$4.49' }).locator('button:text-is("Not recurring")').click(); await rp.waitForTimeout(500);
+  const appleLeft = await rp.locator('#s-recsugg .tx', { hasText: 'APPLE' }).allTextContents();
+  ok(appleLeft.length === 1 && appleLeft[0].includes('$12.99'), 'Not recurring works on one of two charges from the same payee ' + JSON.stringify(appleLeft));
   await rp.click('#s-recsugg button[aria-label^="Add NETFLIX"]'); await rp.waitForTimeout(600);
   const rec = await rp.textContent('#s-rec');
   ok(rec.includes('NETFLIX') && rec.includes('Monthly · next 3 ') && rec.includes('last charge was $24.99'), 'an added suggestion is listed with its next date, and the price rise is noticed ' + rec);
@@ -619,7 +625,7 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   await rp.click('#s-rec [aria-label="Edit Gym"]'); await rp.waitForTimeout(300); await rp.click('.sheet button:text-is("Remove")'); await rp.waitForTimeout(500);
   await rp.reload(); await rp.waitForTimeout(900); await rp.click('.tab[data-tab=spend]'); await rp.waitForTimeout(900);
   const recAfter = await rp.textContent('#s-subs');
-  ok(recAfter.includes('NETFLIX') && !recAfter.includes('Gym') && !recAfter.includes('SPOTIFY'), 'recurring charges and turned-down suggestions survive a reload');
+  ok(recAfter.includes('NETFLIX') && !recAfter.includes('Gym') && !recAfter.includes('SPOTIFY') && !recAfter.includes('$4.49'), 'recurring charges and turned-down suggestions survive a reload');
   ok(rerrors.length === 0, 'no page errors with recurring charges ' + JSON.stringify(rerrors));
   await rctx.close();
   await browser.close();
