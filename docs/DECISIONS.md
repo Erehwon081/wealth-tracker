@@ -51,6 +51,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 - **`config.catMap` {old or built-in name: current name}**: `classify()` passes its result through `mapCat`, so built-in merchant rules, the NAB map and code that names categories (Council rates, Home repairs, Insurance in the ledger; lumpy defaults) follow renames and removals. Adding a category with an old name deletes that map entry.
 - **Rename and remove both go through `moveCategory`**: every month's transactions, hand-keyed month totals, rules and targets move; the new list is set before totals are worked out again. Hidden categories still count; they only leave the pickers.
 - **QIF account choices can be undone.** A card number linked to the wrong account sent every later QIF there silently, and the misfiled rows then made `guessAccount` agree (the user's …2600 purchases ended up on their …4049 account). The import message now names the account, and Wrong account? (`moveImported`) moves that import's rows, drops ones the right account already has (`newOnly`), and moves the card numbers. Rows from earlier imports aren't moved: clean those with Replace with a fresh import on the wrong account.
+- **One-off by default is a per-category `oneOff` setting** (18 Nov 2026). It used to be the built-in names Rego and Council rates passed through `catMap`, so removing Rego into another category made that whole category one-off and hid it from Edit targets (user report). `migrateConfig` sets `oneOff` once: true for those names and for a plain rename (same icon and colour as the built-in), false for a merge, and recomputes months with the affected category (`oneOffFix`). Edit targets lists every visible category, with inputs by position.
 - **Review flag is `t.review: true`** on imported rows (and carried by Replace with a fresh import); no flag means reviewed, so existing data needed no migration.
 
 ### Recurring charges (roadmap 8)
@@ -98,6 +99,7 @@ The engineering record for Claude Code chats. `CLAUDE.md` holds the rules; `CHAN
 
 ## Log
 
+- **18 Nov 2026**: Fixed Edit targets missing categories, and categories wrongly counted as one-off after Rego was removed into them; one-off is now a category setting.
 - **17 Nov 2026**: Built safe-to-spend (9) with bills you save for (most of the cancelled 13) and savings goals (12), at the user's request, in one release.
 - **17 Nov 2026**: Fixed Not recurring for payees with charges at more than one amount (user report).
 - **16 Nov 2026**: Built roadmap 8 (recurring charges you can edit), with suggestions detected from the transactions as the user asked. Next: 9, safe-to-spend.

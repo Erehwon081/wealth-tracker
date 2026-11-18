@@ -687,6 +687,41 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   ok(serrors.length === 0, 'no page errors with bills, safe to spend and goals ' + JSON.stringify(serrors));
   await sctx.close();
   }
+  // Targets list every category; removing Rego into another category doesn't make that category one-off
+  {
+    const octx = await browser.newContext({ ...devices['Pixel 7'] });
+    const op = await octx.newPage(); const oerrors = []; op.on('pageerror', (e) => oerrors.push(e.message));
+    const odb = (st, key) => op.evaluate(async ([st, key]) => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); }); return new Promise((res) => { const q = db.transaction(st).objectStore(st).get(key); q.onsuccess = () => res(q.result); }); }, [st, key]);
+    await op.goto(BASE); await op.waitForTimeout(600); await op.click('text=Load sample data'); await op.waitForTimeout(800);
+    // the setup the user had before this fix: a category they made, with Rego removed into it
+    await op.evaluate(async () => { const r = indexedDB.open('wealth-tracker'); const db = await new Promise((res) => { r.onsuccess = () => res(r.result); });
+      const c = await new Promise((res) => { const q = db.transaction('config').objectStore('config').get('app'); q.onsuccess = () => res(q.result); });
+      const base = ['Groceries', 'Eating out', 'Cafes', 'Fuel', 'Transport', 'Bills', 'Insurance', 'Health', 'Personal care', 'Shopping', 'Clothing', 'Home & furniture', 'Entertainment', 'Subscriptions', 'Services', 'Pets', 'Gifts', 'Home repairs', 'Council rates', 'Interest & fees', 'Other'];
+      c.spendCats = [...base.map((name) => ({ name, icon: 'dots', color: 'grey' })), { name: 'Car costs', icon: 'car', color: 'blue' }];
+      c.spendCats.find((x) => x.name === 'Council rates').icon = 'home'; c.catMap = { Rego: 'Car costs' };
+      await new Promise((res) => { const t = db.transaction('config', 'readwrite'); t.objectStore('config').put(c, 'app'); t.oncomplete = res; });
+      const tx = await new Promise((res) => { const q = db.transaction('tx').objectStore('tx').get('2026-10'); q.onsuccess = () => res(q.result); });
+      tx.push({ date: '2026-10-20', amt: -85, desc: 'TYREPOWER RINGWOOD', merchant: '', acct: '1111', bal: null, cat: 'Car costs' });
+      await new Promise((res) => { const t = db.transaction('tx', 'readwrite'); t.objectStore('tx').put(tx, '2026-10'); t.oncomplete = res; }); });
+    await op.reload(); await op.waitForTimeout(1500);
+    const oc = await odb('config', 'app');
+    ok(oc.spendCats.find((x) => x.name === 'Car costs').oneOff === false && oc.spendCats.find((x) => x.name === 'Council rates').oneOff === true, 'a category Rego was moved into is not one-off; Council rates still is');
+    const oct = await odb('months', '2026-10');
+    ok(oct.spend['Car costs'] === 85, 'the month is worked out again with the category in it');
+    await op.click('.tab[data-tab=budget]'); await op.waitForTimeout(500); await op.click('#b-edit'); await op.waitForTimeout(400);
+    const tl = await op.locator('.sheet-bg:last-child .sheet .field label').allTextContents();
+    ok(tl.some((x) => x.startsWith('Car costs')) && tl.some((x) => x.startsWith('Council rates')) && tl.length === 22, 'the targets screen lists every category, including ones you made ' + tl.length);
+    await op.fill('.sheet-bg:last-child .sheet [aria-label="Car costs"]', '150'); await op.click('.sheet-bg:last-child .btn.primary'); await op.waitForTimeout(500);
+    await op.selectOption('#monthPick', '2026-10'); await op.waitForTimeout(400);
+    ok((await odb('config', 'app')).targets['Car costs'] === 150 && (await op.textContent('#b-cats')).includes('$85 of $150'), 'a target for a category you made saves and shows in Budget');
+    // the one-off setting in the category editor
+    await op.click('#settingsBtn'); await op.click('text=Edit spending categories'); await op.click('.sheet [aria-label="Edit Car costs"]'); await op.waitForTimeout(300);
+    ok(!(await op.isChecked('#cat-oneoff')), 'the editor shows whether a category is one-off');
+    await op.check('#cat-oneoff'); await op.click('.sheet-bg:last-child .btn.primary'); await op.waitForTimeout(900);
+    ok((await odb('months', '2026-10')).lumpy - oct.lumpy === 85, 'switching it to one-off moves its spending out of everyday');
+    ok(oerrors.length === 0, 'no page errors with one-off categories ' + JSON.stringify(oerrors));
+    await octx.close();
+  }
   await browser.close();
   console.log(failed ? `${failed} failed` : 'all passed');
   process.exit(failed ? 1 : 0);
