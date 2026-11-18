@@ -114,13 +114,15 @@ const pLabel = (k) => String(k).replace(/Partner/g, pName());
 // Flow categories (income, transfers, mortgage, partner) stay fixed, because the maths depends on them.
 // config.catMap sends a built-in or older name to the category that replaced it, so imports and built-in rules follow renames.
 const COLOURS = ['teal', 'orange', 'pink', 'blue', 'yellow', 'red', 'violet', 'grey'];
-const defaultCats = () => SPEND_CATS.map((name) => ({ name, icon: CAT_LOOK[name][0], color: CAT_LOOK[name][1] }));
+const defaultCats = () => SPEND_CATS.map((name) => ({ name, icon: CAT_LOOK[name][0], color: CAT_LOOK[name][1], ...(LUMPY_CATS.has(name) ? { oneOff: true } : {}) }));
 const catList = () => (Array.isArray(S.config?.spendCats) && S.config.spendCats.length ? S.config.spendCats : defaultCats());
 const spendCats = () => catList().map((x) => x.name);
 const isSpend = (k) => catList().some((x) => x.name === k);
 const allCats = () => [...spendCats(), ...FLOW_CATS];
 function mapCat(k) { const m = S.config?.catMap || {}; for (let i = 0; i < 10 && m[k] && m[k] !== k; i++) k = m[k]; return k; }
-const lumpyCats = () => new Set([...LUMPY_CATS].map(mapCat));
+// Categories whose spending counts as one-off by default (rego, council rates): a setting on each category.
+// Older lists without it fall back to the built-in names.
+const lumpyCats = () => new Set(catList().filter((x) => x.oneOff ?? LUMPY_CATS.has(x.name)).map((x) => x.name));
 // Categories offered in a picker: the visible spending ones, then the flow ones. The current one always stays in the list.
 function pickCats(cur) {
   const list = [...catList().filter((x) => !x.hidden).map((x) => x.name), ...FLOW_CATS.filter((k) => partnerOn() || !/Partner/.test(k))];
@@ -904,8 +906,10 @@ function scenSheet() {
   sheet('House option assumptions', body, () => saveConfig({ scenario: { sellCostPct: n($('#s-sc').value), breakCost: n($('#s-bc').value), leaseRentWeek: n($('#s-rw').value), leaseCostPct: n($('#s-lc').value) } }));
 }
 function targetsSheet() {
-  const c = cfg(); const body = el('div', { class: 'card' }, el('p', { class: 'cap muted', text: `Everyday target ${$0(c.everydayTarget)} a month. Change it in Settings.` }), ...(() => { const lc = lumpyCats(); return catList().filter((x) => !lc.has(x.name) && (!x.hidden || c.targets[x.name])).map((x) => x.name); })().map((k) => fieldRow(k, null, moneyInput('t-' + k.replace(/\W/g, ''), c.targets[k], k), 't-' + k.replace(/\W/g, ''))));
-  sheet('Monthly targets', body, () => { const t = {}; for (const k of spendCats()) { const i = $('#t-' + k.replace(/\W/g, '')); if (i && i.value) t[k] = n(i.value); } return saveConfig({ targets: t }); });
+  const c = cfg(); const lc = lumpyCats(); const tCats = catList().filter((x) => !x.hidden || c.targets[x.name]).map((x) => x.name);
+  const body = el('div', { class: 'card' }, el('p', { class: 'cap muted', text: `Everyday target ${$0(c.everydayTarget)} a month. Change it in Settings.` }), ...tCats.map((k, i) => fieldRow(k, lc.has(k) ? 'One-off category: not part of everyday spending' : null, moneyInput('t-' + i, c.targets[k], k), 't-' + i)));
+  // Targets for categories not on the screen (hidden ones without a target) are left as they were.
+  sheet('Monthly targets', body, () => { const t = { ...c.targets }; tCats.forEach((k, i) => { const v = $('#t-' + i).value.trim(); if (v) t[k] = n(v); else delete t[k]; }); return saveConfig({ targets: t }); });
 }
 // Budget's card for quarterly and yearly bills: what to put aside each month, and how far along each one is.
 function renderBillsSaved() {
@@ -1586,11 +1590,13 @@ function categorySheet(x) {
   const icons = el('div', { class: 'picker', role: 'group', 'aria-label': 'Icon' }, Object.keys(ICONS).map(iconBtn));
   const colours = el('div', { class: 'picker', role: 'group', 'aria-label': 'Colour' }, COLOURS.map((col) => el('button', { class: 'pickbtn swatch', type: 'button', 'data-colour': col, 'aria-label': col, 'aria-pressed': col === cur.color ? 'true' : 'false', style: `--c:var(--c-${col})`, onclick: (e) => { cur.color = col; colours.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', b === e.currentTarget ? 'true' : 'false')); drawPreview(); } })));
   const hidden = el('input', { type: 'checkbox', id: 'cat-hidden', checked: !!cur.hidden });
+  const oneOff = el('input', { type: 'checkbox', id: 'cat-oneoff', checked: !!(cur.oneOff ?? (x && lumpyCats().has(x.name))) });
   drawPreview();
   const body = el('div', { class: 'card' },
     el('div', { style: 'display:flex;gap:10px;align-items:center' }, preview, el('div', { style: 'flex:1;min-width:0' }, name)),
     el('p', { class: 'cap muted', text: 'Icon' }), icons,
     el('p', { class: 'cap muted', text: 'Colour' }), colours,
+    el('label', { style: 'display:flex;gap:10px;align-items:flex-start;padding-top:12px' }, oneOff, el('span', {}, 'Count as one-off spending', el('small', { class: 'cap muted', style: 'display:block', text: 'For bills that come once or twice a year, like rego. They\'re left out of everyday spending, so they don\'t throw out the month.' }))),
     isNew ? null : el('label', { style: 'display:flex;gap:10px;align-items:flex-start;padding-top:12px' }, hidden, el('span', {}, 'Hide from category lists', el('small', { class: 'cap muted', style: 'display:block', text: 'Its transactions still count. Use this for a category you no longer need but want to keep the history of.' }))));
   if (!isNew) {
     const others = spendCats().filter((k) => k !== x.name);
@@ -1608,14 +1614,16 @@ function categorySheet(x) {
     const nm = name.value.trim().replace(/\s+/g, ' ');
     if (!nm) { toast('Give the category a name'); return false; }
     if (catNameTaken(nm, x?.name)) { toast(`There's already a category called ${nm}`); return false; }
-    const entry = { name: nm, icon: cur.icon, color: cur.color, ...(hidden.checked && !isNew ? { hidden: true } : {}) };
+    const entry = { name: nm, icon: cur.icon, color: cur.color, oneOff: oneOff.checked, ...(hidden.checked && !isNew ? { hidden: true } : {}) };
     if (isNew) {
       const catMap = { ...(cfg().catMap || {}) }; delete catMap[nm]; // a new category with an old name takes that name back
       await saveConfig({ spendCats: [...catList(), entry], catMap });
       toast(`Added ${nm}`);
     } else {
       const list = catList().map((k) => (k.name === x.name ? entry : k));
+      const wasOneOff = lumpyCats().has(x.name);
       await saveConfig(nm !== x.name ? await moveCategory(x.name, nm, list) : { spendCats: list });
+      if (wasOneOff !== entry.oneOff) { await loadAllTx(); for (const [m, rows] of Object.entries(S.tx)) if (S.months[m] && rows.some((t) => t.cat === nm)) await applySummary(m, false); render(); }
       toast(nm !== x.name ? `Renamed ${x.name} to ${nm}` : 'Saved');
     }
     setTimeout(categoriesSheet, 280);
@@ -2005,6 +2013,17 @@ async function migrateConfig() {
     const add = old.filter((x) => String(x?.name || '').trim() && n(x.yearly) > 0).map((x, i) => ({ id: 'r' + Date.now().toString(36) + i, name: x.name.trim(), amount: n(x.yearly), every: 'year', next: null, words: '' }));
     c.recurring = [...(c.recurring || []), ...add]; c.sinking = []; c.billsMoved = true; changed = true;
   }
+  if (Array.isArray(c.spendCats) && c.spendCats.some((x) => x.oneOff === undefined)) {
+    const fromLumpy = new Map(); for (const k of LUMPY_CATS) { let v = k; for (let i = 0; i < 10 && c.catMap?.[v]; i++) v = c.catMap[v]; if (v !== k) fromLumpy.set(v, k); }
+    const wrong = [];
+    c.spendCats = c.spendCats.map((x) => {
+      if (x.oneOff !== undefined) return x;
+      const orig = fromLumpy.get(x.name); const renamed = orig && CAT_LOOK[orig][0] === x.icon && CAT_LOOK[orig][1] === x.color;
+      if (orig && !renamed) wrong.push(x.name);
+      return { ...x, oneOff: LUMPY_CATS.has(x.name) || !!renamed };
+    });
+    c.oneOffFix = wrong; changed = true;
+  }
   if (!Array.isArray(c.goals)) { const cash = n((c.goal || DEFAULT_CONFIG.goal).cash); c.goals = cash > 0 ? [{ id: 'g1', name: 'Cash savings', target: cash, date: null, source: 'cash' }] : []; changed = true; }
   if (changed) { try { await store.put('config', 'app', clone(c)); } catch {} }
 }
@@ -2019,6 +2038,8 @@ async function loadState() {
   // were read as repayments and interest (v3), are worked out again, once. Loan rows still on an older category are refiled.
   ensureAllTx().then(async () => {
     let any = false; const lk = loanAcctMap();
+    const fix = S.config?.oneOffFix || [];
+    if (fix.length) { for (const [m, rows] of Object.entries(S.tx)) if (S.months[m] && rows.some((t) => fix.includes(t.cat))) { await applySummary(m, false); any = true; } S.config.oneOffFix = []; await writeDoc('app/config', S.config); }
     for (const [m, rows] of Object.entries(S.tx)) {
       if (!S.months[m] || n(S.months[m].sumV) >= 3) continue;
       const loanRows = rows.filter((t) => t.acct && lk.has(t.acct));
