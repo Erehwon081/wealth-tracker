@@ -534,6 +534,8 @@ const ok = (cond, msg) => { console.log((cond ? 'ok   ' : 'FAIL ') + msg); if (!
   ok(opts.includes('Kids') && !opts.includes('Pets') && (await cp.textContent('#s-cats')).includes('Pets'), 'a new category can be picked; a hidden one leaves the lists but still counts ' + opts.join('|'));
   const k = await cdb('config', 'app'); const kids = k.spendCats.find((x) => x.name === 'Kids');
   ok(kids && kids.icon === 'heart' && kids.color === 'pink', 'the new category keeps its icon and colour');
+  const order = k.spendCats.map((x) => x.name);
+  ok(order.indexOf('Kids') === order.indexOf('Other') - 1, 'a new category goes just above Other ' + order.slice(-3).join(','));
   await cp.click('#settingsBtn'); await cp.click('text=Edit spending categories'); await cp.click('.sheet [aria-label="Edit Cafes"]'); await cp.waitForTimeout(300);
   await cp.click('.sheet button:text-is("Remove this category")'); await cp.selectOption('#cat-moveto', 'Eating out');
   await cp.click('.sheet button:text-is("Remove Cafes")'); await cp.waitForTimeout(1000); await cclose();

@@ -1617,7 +1617,9 @@ function categorySheet(x) {
     const entry = { name: nm, icon: cur.icon, color: cur.color, oneOff: oneOff.checked, ...(hidden.checked && !isNew ? { hidden: true } : {}) };
     if (isNew) {
       const catMap = { ...(cfg().catMap || {}) }; delete catMap[nm]; // a new category with an old name takes that name back
-      await saveConfig({ spendCats: [...catList(), entry], catMap });
+      // New categories go just above Other, so they're easy to find in lists and on Edit targets.
+      const list = [...catList()]; const at = list.findIndex((k) => k.name === mapCat('Other')); list.splice(at < 0 ? list.length : at, 0, entry);
+      await saveConfig({ spendCats: list, catMap });
       toast(`Added ${nm}`);
     } else {
       const list = catList().map((k) => (k.name === x.name ? entry : k));
