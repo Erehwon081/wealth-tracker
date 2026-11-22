@@ -4,6 +4,13 @@ Each Android release on GitHub takes its notes from this file. Add changes under
 
 ## Unreleased
 
+### Added
+- New spending categories go just above Other in the list, instead of at the very bottom, so they're easy to find in pickers and in Budget's Edit targets.
+- Each spending category now has a "Count as one-off spending" setting in Settings > Edit spending categories. It's on for Rego and Council rates to start with. One-off spending is left out of everyday spending.
+
+### Fixed
+- Budget's Edit targets now lists every spending category, including ones you've added. A category that Rego or Council rates had been removed into was left off, and all its spending was counted as one-off. It now counts as everyday spending again, and the months it affected are worked out again once.
+
 ## 1.0.38 (17 Nov 2026)
 
 ### Added
